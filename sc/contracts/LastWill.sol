@@ -119,4 +119,48 @@ contract LastWill {
     function getHeirs() external view returns (Heir[] memory) {
         return heirs;
     }
+
+    // Getter Functions
+
+    function getTotalTokenAmounts()
+        external
+        view
+        onlyOwner
+        returns (address[] memory, uint256[] memory, uint256)
+    {
+        uint256 uniqueTokenCount = 0;
+        uint256 totalNativeAmount = 0;
+
+        //@todo for now, I asume, we'll never have more than 10 unique tokens => change this & avoid magic numbers
+        address[] memory uniqueTokens = new address[](heirs.length * 10);
+        uint256[] memory tokenAmounts = new uint256[](heirs.length * 10);
+
+        for (uint256 i = 0; i < heirs.length; i++) {
+            Heir memory h = heirs[i];
+            totalNativeAmount += h.nativeAmounts;
+
+            for (uint256 j = 0; j < h.tokens.length; j++) {
+                address token = h.tokens[j];
+                uint256 amount = h.amounts[j];
+
+                // Find or add token
+                bool found = false;
+                for (uint256 k = 0; k < uniqueTokenCount; k++) {
+                    if (uniqueTokens[k] == token) {
+                        tokenAmounts[k] += amount;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    uniqueTokens[uniqueTokenCount] = token;
+                    tokenAmounts[uniqueTokenCount] = amount;
+                    uniqueTokenCount++;
+                }
+            }
+        }
+
+        return (uniqueTokens, tokenAmounts, totalNativeAmount);
+    }
 }
