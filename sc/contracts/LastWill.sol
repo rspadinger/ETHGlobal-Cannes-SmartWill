@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./WillEscrow.sol";
 import "./WillRegistry.sol";
+import "./WillFactory.sol";
 
 import "hardhat/console.sol";
 
@@ -38,6 +39,11 @@ contract LastWill {
     error NotDueYet();
     error AlreadyInitialized();
     error InvalidDueDate();
+    error InvalidHeirIndex();
+    error HeirAlreadyExists();
+    error ArraysNotSameSize();
+    error TokenNotWhitelisted();
+    error AmountMustBeGreaterThanZero();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -81,14 +87,29 @@ contract LastWill {
         address wallet,
         address[] calldata tokens,
         uint256[] calldata amounts,
-        uint256 nativeAmounts
+        uint256 nativeAmount
     ) external onlyOwnerOrFactory {
-        heirs.push(Heir(wallet, tokens, amounts, nativeAmounts));
-        emit HeirAdded(wallet, tokens, amounts, nativeAmounts);
+        // Check if wallet is already a heir
+        for (uint256 i = 0; i < heirs.length; i++) {
+            if (heirs[i].wallet == wallet) revert HeirAlreadyExists();
+        }
+
+        // Check if arrays have same size
+        if (tokens.length != amounts.length) revert ArraysNotSameSize();
+
+        // Check if all tokens are whitelisted and amounts are valid
+        for (uint256 i = 0; i < tokens.length; i++) {
+            (bool allowed, ) = WillFactory(factory).tokenWhiteList(tokens[i]);
+            if (!allowed) revert TokenNotWhitelisted();
+            if (amounts[i] == 0) revert AmountMustBeGreaterThanZero();
+        }
+
+        heirs.push(Heir(wallet, tokens, amounts, nativeAmount));
+        emit HeirAdded(wallet, tokens, amounts, nativeAmount);
     }
 
     function removeHeir(uint256 index) external onlyOwner {
-        require(index < heirs.length, "Invalid index");
+        if (index >= heirs.length) revert InvalidHeirIndex();
         heirs[index] = heirs[heirs.length - 1];
         heirs.pop();
         emit HeirRemoved(index);
