@@ -10,7 +10,7 @@ import "hardhat/console.sol";
 contract WillEscrow {
     struct TokenBalance {
         uint256 amount;
-        address owner;
+        address owner; //creator of the will
     }
 
     address public factory;
@@ -21,7 +21,7 @@ contract WillEscrow {
     // Track total native ETH per will
     mapping(address => uint256) public nativeBalances;
 
-    // Track which contracts can call transfer functions
+    // Track which contracts can call transfer functions => creators and heirs
     mapping(address => bool) public authorizedCallers;
 
     // Track which wills are registered
@@ -54,6 +54,9 @@ contract WillEscrow {
         authorizedCallers[caller] = true;
     }
 
+    //@todo when transferring tokens to heirs, deduct a small protocol fee
+
+    //@audit can only be called by LastWill contract
     function transferERC20(
         address will,
         address token,
@@ -69,6 +72,7 @@ contract WillEscrow {
         bool isOwner = msg.sender == balance.owner;
         bool isHeir = isHeirTransfer(will, to, amount, token);
 
+        //@audit only LastWill is allowed to call
         if (!isOwner && !isHeir) revert InvalidTransfer();
 
         // Update balance
@@ -114,15 +118,15 @@ contract WillEscrow {
         // Check if will is due
         if (block.timestamp < willContract.dueDate()) revert NotDueYet();
 
-        // Check if will is executed
-        if (willContract.executed()) revert AlreadyExecuted();
-
         // Get heir data
-        (LastWill.Heir memory heir, ) = willContract.getHeirByAddress(to);
+        (LastWill.Heir memory heir, , ) = willContract.getHeirByAddress(to);
+
+        if (heir.executed) revert AlreadyExecuted();
 
         // For native transfers (token == address(0)), check nativeAmounts
         if (token == address(0)) {
-            return heir.nativeAmounts == amount;
+            uint256 nativeAmount = willContract.getNativeTokenAmount(to);
+            return nativeAmount == amount;
         }
 
         // For ERC20 transfers, check the specific token amount
@@ -136,7 +140,7 @@ contract WillEscrow {
     }
 
     function registerDeposit(address will, address token, uint256 amount) external onlyAuthorized {
-        //for native  token
+        //for native token
         if (token == address(0)) {
             nativeBalances[will] += amount;
             tokenBalances[will][address(0)] = TokenBalance({amount: amount, owner: msg.sender});
