@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./LastWill.sol";
 
 import "hardhat/console.sol";
 
@@ -12,6 +13,8 @@ contract WillEscrow {
         address owner;
         bool isNative;
     }
+
+    address public factory;
 
     // Mapping of (willAddress => tokenAddress => balance)
     mapping(address => mapping(address => TokenBalance)) public tokenBalances;
@@ -42,8 +45,6 @@ contract WillEscrow {
         _;
     }
 
-    address public factory;
-
     function setFactory(address _factory) external {
         factory = _factory;
         authorizedCallers[factory] = true;
@@ -67,7 +68,7 @@ contract WillEscrow {
 
         // Check if transfer is authorized
         bool isOwner = msg.sender == balance.owner;
-        bool isHeir = isHeirTransfer(will, to, amount);
+        bool isHeir = isHeirTransfer(will, to, amount, token);
 
         if (!isOwner && !isHeir) revert InvalidTransfer();
 
@@ -89,7 +90,7 @@ contract WillEscrow {
 
         // Check if transfer is authorized
         bool isOwner = msg.sender == tokenBalances[will][address(0)].owner;
-        bool isHeir = isHeirTransfer(will, to, amount);
+        bool isHeir = isHeirTransfer(will, to, amount, address(0));
 
         if (!isOwner && !isHeir) revert InvalidTransfer();
 
@@ -102,13 +103,37 @@ contract WillEscrow {
     }
 
     // Helper function to check if transfer is to a heir with correct amount
-    function isHeirTransfer(address will, address to, uint256 amount) internal view returns (bool) {
+    function isHeirTransfer(
+        address will,
+        address to,
+        uint256 amount,
+        address token
+    ) internal view returns (bool) {
         // Get will contract
         LastWill willContract = LastWill(will);
 
-        //@todo perform various checks
+        // Check if will is due
+        if (block.timestamp < willContract.dueDate()) revert NotDueYet();
 
-        return true;
+        // Check if will is executed
+        if (willContract.executed()) revert AlreadyExecuted();
+
+        // Get heir data
+        (LastWill.Heir memory heir, ) = willContract.getHeirByAddress(to);
+
+        // For native transfers (token == address(0)), check nativeAmounts
+        if (token == address(0)) {
+            return heir.nativeAmounts == amount;
+        }
+
+        // For ERC20 transfers, check the specific token amount
+        for (uint256 i = 0; i < heir.tokens.length; i++) {
+            if (heir.tokens[i] == token && heir.amounts[i] == amount) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     receive() external payable {}
