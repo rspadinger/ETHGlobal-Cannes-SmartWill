@@ -20,7 +20,7 @@ contract WillRegistry {
     }
 
     function checkUpkeep(bytes calldata) external view returns (bool upkeepNeeded, bytes memory performData) {
-        //@todo setup CL upkeep => check if any wills need  to be executed => provide arr of indexes
+        //@todo setup CL upkeep => check if any wills need to be executed => provide arr of indexes
 
         return (false, "");
     }

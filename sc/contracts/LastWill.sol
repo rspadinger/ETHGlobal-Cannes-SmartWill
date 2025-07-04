@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./WillEscrow.sol";
 
 import "hardhat/console.sol";
 
@@ -12,9 +13,11 @@ contract LastWill {
         uint256[] amounts;
     }
 
+    address public immutable factory;
     bool public initialized;
     uint256 public dueDate;
     bool public executed;
+    WillEscrow public escrow;
 
     Heir[] public heirs;
 
@@ -26,7 +29,12 @@ contract LastWill {
     error NotDueYet();
     error AlreadyInitialized();
 
-    function initialize(uint256 _dueDate) external {
+    constructor(address _factory, address _escrow, address _registry) {
+        factory = _factory;
+        escrow = WillEscrow(payable(_escrow));
+    }
+
+    function initialize(address _owner, uint256 _dueDate) external {
         if (initialized) revert AlreadyInitialized();
         initialized = true;
         dueDate = _dueDate;

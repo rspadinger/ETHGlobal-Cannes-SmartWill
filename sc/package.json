@@ -4,6 +4,7 @@
     "description": "",
     "scripts": {
         "compile": "npx hardhat compile",
+        "postcompile": "cp artifacts/contracts/WillFactory.sol/WillFactory.json ../ui/abi/WillFactory.json && cp artifacts/contracts/WillRegistry.sol/WillRegistry.json ../ui/abi/WillRegistry.json && cp artifacts/contracts/WillEscrow.sol/WillEscrow.json ../ui/abi/WillEscrow.json && cp artifacts/contracts/LastWill.sol/LastWill.json ../ui/abi/LastWill.json",
         "deploy": "hardhat run scripts/deployVerify.js"
     },
     "devDependencies": {
