@@ -11,7 +11,6 @@ contract WillEscrow {
     struct TokenBalance {
         uint256 amount;
         address owner;
-        bool isNative;
     }
 
     address public factory;
@@ -134,6 +133,20 @@ contract WillEscrow {
         }
 
         return false;
+    }
+
+    function registerDeposit(address will, address token, uint256 amount) external onlyAuthorized {
+        //for native  token
+        if (token == address(0)) {
+            nativeBalances[will] += amount;
+            tokenBalances[will][address(0)] = TokenBalance({amount: amount, owner: msg.sender});
+        } else {
+            tokenBalances[will][token] = TokenBalance({amount: amount, owner: msg.sender});
+        }
+    }
+
+    function registerWill(address will) external onlyAuthorized {
+        registeredWills[will] = true;
     }
 
     receive() external payable {}
