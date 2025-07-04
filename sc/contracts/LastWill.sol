@@ -33,6 +33,8 @@ contract LastWill {
     event HeirRemoved(uint256 indexed index);
     event TokensTransferredToEscrow(address indexed token, uint256 amount, address indexed from);
     event ExcessNativeTokenReturned(address indexed recipient, uint256 amount);
+    event TokensReturnedFromEscrow(address indexed token, uint256 amount, address indexed to);
+    event NativeTokensReturnedFromEscrow(address indexed to, uint256 amount);
 
     error NotOwner();
     error NotFactory();
@@ -48,6 +50,7 @@ contract LastWill {
     error AmountMustBeGreaterThanZero();
     error HeirNotFound();
     error NativeTokenAmountMismatch();
+    error NotOwnerOrHeir();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -61,6 +64,11 @@ contract LastWill {
 
     modifier onlyOwnerOrFactory() {
         if (msg.sender != owner && msg.sender != factory) revert NotOwnerOrFactory();
+        _;
+    }
+
+    modifier onlyOwnerOrHeir(address heir) {
+        if (msg.sender != owner && msg.sender != heir) revert NotOwnerOrHeir();
         _;
     }
 
@@ -148,11 +156,32 @@ contract LastWill {
         }
         if (index == type(uint256).max) revert HeirNotFound();
 
+        // Get the heir's data before removing
+        Heir memory heirToRemove = heirs[index];
+
+        // Return native tokens to owner
+        if (heirToRemove.nativeAmounts > 0) {
+            escrow.transferETH(payable(owner), heirToRemove.nativeAmounts);
+            emit NativeTokensReturnedFromEscrow(owner, heirToRemove.nativeAmounts);
+        }
+
+        // Return ERC20 tokens to owner
+        for (uint256 i = 0; i < heirToRemove.tokens.length; i++) {
+            if (heirToRemove.amounts[i] > 0) {
+                escrow.transferERC20(heirToRemove.tokens[i], owner, heirToRemove.amounts[i]);
+                emit TokensReturnedFromEscrow(heirToRemove.tokens[i], heirToRemove.amounts[i], owner);
+            }
+        }
+
+        // Remove the heir from the array
         heirs[index] = heirs[heirs.length - 1];
         heirs.pop();
         emit HeirRemoved(index);
     }
 
+    //@todo add modifyHeir function
+
+    //@todo check this function
     function executeLastWill() external {
         //@todo pay service fee to protocol
 
@@ -167,6 +196,7 @@ contract LastWill {
                 uint256 amount = h.amounts[j];
 
                 if (token == address(0)) {
+                    //@todo could cause a revert if wallet is a contract & does not accept ETH
                     escrow.transferETH(payable(h.wallet), amount);
                 } else {
                     escrow.transferERC20(token, h.wallet, amount);
@@ -175,11 +205,22 @@ contract LastWill {
         }
     }
 
-    function getHeirs() external view returns (Heir[] memory) {
+    // Getter Functions
+
+    function getHeirs() external view onlyOwner returns (Heir[] memory) {
         return heirs;
     }
 
-    // Getter Functions
+    function getHeirByAddress(
+        address heir
+    ) external view onlyOwnerOrHeir(heir) returns (Heir memory, uint256) {
+        for (uint256 i = 0; i < heirs.length; i++) {
+            if (heirs[i].wallet == heir) {
+                return (heirs[i], dueDate);
+            }
+        }
+        revert HeirNotFound();
+    }
 
     function getTotalTokenAmounts()
         external
