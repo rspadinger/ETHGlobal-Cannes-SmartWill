@@ -123,6 +123,7 @@ contract LastWill {
         if (nativeAmount > 0) {
             (bool success, ) = payable(address(escrow)).call{value: nativeAmount}("");
             require(success, "ETH escrow failed");
+            escrow.registerDeposit(address(this), address(0), nativeAmount);
         }
 
         // Return excess native tokens to the sender if any
@@ -138,6 +139,7 @@ contract LastWill {
             if (amounts[i] > 0) {
                 bool success = IERC20(tokens[i]).transferFrom(msg.sender, address(escrow), amounts[i]);
                 require(success, "Token transfer failed");
+                escrow.registerDeposit(address(this), tokens[i], amounts[i]);
                 emit TokensTransferredToEscrow(tokens[i], amounts[i], msg.sender);
             }
         }
@@ -161,14 +163,14 @@ contract LastWill {
 
         // Return native tokens to owner
         if (heirToRemove.nativeAmounts > 0) {
-            escrow.transferETH(payable(owner), heirToRemove.nativeAmounts);
+            escrow.transferETH(address(this), payable(owner), heirToRemove.nativeAmounts);
             emit NativeTokensReturnedFromEscrow(owner, heirToRemove.nativeAmounts);
         }
 
         // Return ERC20 tokens to owner
         for (uint256 i = 0; i < heirToRemove.tokens.length; i++) {
             if (heirToRemove.amounts[i] > 0) {
-                escrow.transferERC20(heirToRemove.tokens[i], owner, heirToRemove.amounts[i]);
+                escrow.transferERC20(address(this), heirToRemove.tokens[i], owner, heirToRemove.amounts[i]);
                 emit TokensReturnedFromEscrow(heirToRemove.tokens[i], heirToRemove.amounts[i], owner);
             }
         }
@@ -181,7 +183,7 @@ contract LastWill {
 
     //@todo add modifyHeir function
 
-    //@todo check this function
+    //@todo check this  function
     function executeLastWill() external {
         //@todo pay service fee to protocol
 
@@ -197,9 +199,9 @@ contract LastWill {
 
                 if (token == address(0)) {
                     //@todo could cause a revert if wallet is a contract & does not accept ETH
-                    escrow.transferETH(payable(h.wallet), amount);
+                    escrow.transferETH(address(this), payable(h.wallet), amount);
                 } else {
-                    escrow.transferERC20(token, h.wallet, amount);
+                    escrow.transferERC20(address(this), token, h.wallet, amount);
                 }
             }
         }
