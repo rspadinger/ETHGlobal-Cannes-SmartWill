@@ -31,6 +31,8 @@ contract LastWill {
     event DueDateUpdated(uint256 newDate);
     event HeirAdded(address indexed heir, address[] tokens, uint256[] amounts, uint256 nativeAmounts);
     event HeirRemoved(uint256 indexed index);
+    event TokensTransferredToEscrow(address indexed token, uint256 amount, address indexed from);
+    event ExcessNativeTokenReturned(address indexed recipient, uint256 amount);
 
     error NotOwner();
     error NotFactory();
@@ -44,6 +46,8 @@ contract LastWill {
     error ArraysNotSameSize();
     error TokenNotWhitelisted();
     error AmountMustBeGreaterThanZero();
+    error HeirNotFound();
+    error NativeTokenAmountMismatch();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -88,7 +92,7 @@ contract LastWill {
         address[] calldata tokens,
         uint256[] calldata amounts,
         uint256 nativeAmount
-    ) external onlyOwnerOrFactory {
+    ) external payable onlyOwnerOrFactory {
         // Check if wallet is already a heir
         for (uint256 i = 0; i < heirs.length; i++) {
             if (heirs[i].wallet == wallet) revert HeirAlreadyExists();
@@ -104,12 +108,46 @@ contract LastWill {
             if (amounts[i] == 0) revert AmountMustBeGreaterThanZero();
         }
 
+        // Check if native amount <= msg.value
+        if (nativeAmount > msg.value) revert NativeTokenAmountMismatch();
+
+        // Transfer native ETH to escrow
+        if (nativeAmount > 0) {
+            (bool success, ) = payable(address(escrow)).call{value: nativeAmount}("");
+            require(success, "ETH escrow failed");
+        }
+
+        // Return excess native tokens to the sender if any
+        uint256 excessAmount = msg.value - nativeAmount;
+        if (excessAmount > 0) {
+            (bool success, ) = payable(msg.sender).call{value: excessAmount}("");
+            require(success, "ETH return failed");
+            emit ExcessNativeTokenReturned(msg.sender, excessAmount);
+        }
+
+        // Transfer ERC20 tokens to escrow
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (amounts[i] > 0) {
+                bool success = IERC20(tokens[i]).transferFrom(msg.sender, address(escrow), amounts[i]);
+                require(success, "Token transfer failed");
+                emit TokensTransferredToEscrow(tokens[i], amounts[i], msg.sender);
+            }
+        }
+
         heirs.push(Heir(wallet, tokens, amounts, nativeAmount));
         emit HeirAdded(wallet, tokens, amounts, nativeAmount);
     }
 
-    function removeHeir(uint256 index) external onlyOwner {
-        if (index >= heirs.length) revert InvalidHeirIndex();
+    function removeHeir(address wallet) external onlyOwner {
+        uint256 index = type(uint256).max;
+        for (uint256 i = 0; i < heirs.length; i++) {
+            if (heirs[i].wallet == wallet) {
+                index = i;
+                break;
+            }
+        }
+        if (index == type(uint256).max) revert HeirNotFound();
+
         heirs[index] = heirs[heirs.length - 1];
         heirs.pop();
         emit HeirRemoved(index);
