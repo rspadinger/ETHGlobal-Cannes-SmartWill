@@ -1,11 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import type React from "react"
+
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, Users, ExternalLink, AlertTriangle } from "lucide-react"
+import { Plus, Users, ExternalLink, AlertTriangle, Calendar, Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import HeirRow from "./heir-row"
 
 interface TokenBalance {
     symbol: string
@@ -26,6 +31,7 @@ interface HeirsTableProps {
     onSaveAndApprove: () => void
     isReadOnly?: boolean
     isSaving?: boolean
+    onDueDateChange?: (date: string) => void
 }
 
 export default function HeirsTable({
@@ -36,8 +42,46 @@ export default function HeirsTable({
     onSaveAndApprove,
     isReadOnly = false,
     isSaving = false,
+    onDueDateChange,
 }: HeirsTableProps) {
     const [showConfirmDialog, setShowConfirmDialog] = useState<string | null>(null)
+    const [localDueDate, setLocalDueDate] = useState(dueDate)
+    const [dateError, setDateError] = useState("")
+
+    // Update local date when prop changes
+    useEffect(() => {
+        setLocalDueDate(dueDate)
+    }, [dueDate])
+
+    const validateDate = useCallback((dateString: string) => {
+        if (!dateString) return false
+
+        const selected = new Date(dateString)
+        const tomorrow = new Date()
+        tomorrow.setDate(tomorrow.getDate() + 1)
+
+        if (selected <= tomorrow) {
+            return false
+        }
+
+        return true
+    }, [])
+
+    const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newDate = e.target.value
+        setLocalDueDate(newDate)
+
+        // Validate and set error
+        if (!validateDate(newDate)) {
+            setDateError("Inheritance date must be at least 24 hours in the future")
+        } else {
+            setDateError("")
+            // Notify parent component only if validation passes
+            if (onDueDateChange) {
+                onDueDateChange(newDate)
+            }
+        }
+    }
 
     const addHeir = () => {
         const newHeir: Heir = {
@@ -87,8 +131,9 @@ export default function HeirsTable({
         onHeirsChange(updatedHeirs)
     }
 
-    const validateForm = () => {
+    const isFormValid = useCallback(() => {
         if (heirs.length === 0) return false
+        if (!validateDate(localDueDate)) return false
 
         const hasValidHeir = heirs.some((heir) => {
             const hasValidAddress = /^0x[a-fA-F0-9]{40}$/.test(heir.address)
@@ -105,7 +150,7 @@ export default function HeirsTable({
         })
 
         return hasValidHeir && noOverAllocation
-    }
+    }, [heirs, localDueDate, tokenBalances, validateDate])
 
     const getOverAllocatedTokens = () => {
         return tokenBalances.filter((token) => {
@@ -117,7 +162,6 @@ export default function HeirsTable({
         })
     }
 
-    const isFormValid = validateForm()
     const overAllocatedTokens = getOverAllocatedTokens()
 
     const formatDate = (dateString: string) => {
@@ -129,15 +173,54 @@ export default function HeirsTable({
     }
 
     return (
-        <Card className="card-dark">
+        <Card className="card-light">
             <CardHeader>
                 <CardTitle className="text-2xl font-bold">Your Inheritance Plan</CardTitle>
-                <p className="text-muted-foreground">Due Date: {formatDate(dueDate)}</p>
+
+                {/* Editable Due Date */}
+                <div className="space-y-2 mt-2">
+                    <div className="flex items-center space-x-2">
+                        <Label htmlFor="inheritance-date" className="text-base font-medium">
+                            Inheritance Date
+                        </Label>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Info className="h-4 w-4 text-muted-foreground" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>You can modify when your inheritance plan should activate</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
+                    <div className="relative">
+                        <Input
+                            id="inheritance-date"
+                            type="date"
+                            value={localDueDate}
+                            onChange={handleDateChange}
+                            className="text-lg py-3 pl-10"
+                        />
+                        <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    </div>
+                    {dateError && <p className="text-destructive text-sm">{dateError}</p>}
+                </div>
+
+                {/* Token Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                    {tokenBalances.map((token) => (
+                        <div key={token.symbol} className="p-3 rounded-lg border border-border bg-muted/20">
+                            <p className="text-sm text-muted-foreground">{token.symbol} Available</p>
+                            <p className="text-lg font-bold">{token.balance.toLocaleString()}</p>
+                        </div>
+                    ))}
+                </div>
             </CardHeader>
 
             <CardContent className="space-y-6">
                 {/* Table Header */}
-                <div className="hidden md:grid md:grid-cols-12 gap-4 p-4 bg-muted/30 rounded-lg font-medium text-sm mb-2">
+                <div className="hidden md:grid md:grid-cols-12 gap-4 p-4 bg-muted/30 rounded-lg font-medium text-sm">
                     <div className="md:col-span-1">Heir #</div>
                     <div className="md:col-span-4">Wallet Address</div>
                     <div className="md:col-span-6 grid grid-cols-3 gap-2">
@@ -164,15 +247,39 @@ export default function HeirsTable({
                             </Button>
                         </div>
                     ) : (
-                        <div>
-                            Hair 1 ... 0x9A2Aa18bBAAA7CA86EAE3B8edDd8090Ab6D0b123 ... 250 USDC ... 12 POLS ...
-                            23 LINK ...{" "}
-                        </div>
+                        heirs.map((heir, index) => (
+                            <HeirRow
+                                key={heir.id}
+                                heirNumber={index + 1}
+                                address={heir.address}
+                                tokenAmounts={tokenBalances.map((token) => ({
+                                    symbol: token.symbol,
+                                    amount: heir.tokenAmounts[token.symbol] || 0,
+                                    maxAmount: token.balance,
+                                }))}
+                                onAddressChange={(address) => updateHeirAddress(heir.id, address)}
+                                onTokenAmountChange={(symbol, amount) =>
+                                    updateHeirTokenAmount(heir.id, symbol, amount)
+                                }
+                                onRemove={() => {
+                                    const hasData =
+                                        heir.address ||
+                                        Object.values(heir.tokenAmounts).some((amount) => amount > 0)
+                                    if (hasData) {
+                                        setShowConfirmDialog(heir.id)
+                                    } else {
+                                        removeHeir(heir.id)
+                                    }
+                                }}
+                                canRemove={heirs.length > 1 || isReadOnly}
+                                isReadOnly={isReadOnly}
+                            />
+                        ))
                     )}
                 </div>
 
                 {/* Add Heir Button */}
-                {heirs.length > 0 && !isReadOnly && (
+                {heirs.length > 0 && (
                     <Button
                         onClick={addHeir}
                         variant="outline"
@@ -219,76 +326,55 @@ export default function HeirsTable({
                     </Alert>
                 )}
 
-                {/* Save and Approve Button */}
-                {!isReadOnly && (
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    onClick={onSaveAndApprove}
-                                    disabled={!isFormValid || isSaving}
-                                    size="lg"
-                                    className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
-                                >
-                                    {isSaving ? (
-                                        <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                            Waiting for your approval...
-                                        </>
-                                    ) : (
-                                        "Save and Approve Inheritance"
-                                    )}
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>You'll need to approve token transfers for these amounts</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                )}
+                {/* Save and Approve Button - Always enabled for date changes */}
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                onClick={onSaveAndApprove}
+                                disabled={!isFormValid() || isSaving}
+                                size="lg"
+                                className="w-full bg-cyan-500 hover:bg-cyan-600 text-white"
+                            >
+                                {isSaving ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Waiting for your approval...
+                                    </>
+                                ) : (
+                                    "Save and Approve Inheritance"
+                                )}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Update your inheritance plan with the new settings</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
 
-                {/* Post-Save State */}
-                {isReadOnly && (
-                    <div className="text-center space-y-4">
-                        <Alert>
-                            <AlertDescription>
-                                Inheritance plan successfully created! Funds will be locked until{" "}
-                                {formatDate(dueDate)}.
-                            </AlertDescription>
-                        </Alert>
-                        <Button
-                            variant="outline"
-                            className="border-cyan-500 text-cyan-500 hover:bg-cyan-500 hover:text-white"
-                        >
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            View Your Will on Block Explorer
-                        </Button>
-                    </div>
-                )}
-
-                {/* Confirmation  Dialog */}
+                {/* Confirmation Dialog */}
                 {showConfirmDialog && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                        <Card className="w-full max-w-md mx-4">
-                            <CardHeader>
-                                <CardTitle>Remove Heir</CardTitle>
+                        <Card className="w-full max-w-md mx-4 border border-border bg-card">
+                            <CardHeader className="bg-muted/30">
+                                <CardTitle className="text-foreground">Remove Heir</CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-4">
-                                <p>
+                            <CardContent className="space-y-4 pt-4">
+                                <p className="text-foreground">
                                     Are you sure you want to remove this heir? This action cannot be undone.
                                 </p>
                                 <div className="flex space-x-2">
                                     <Button
                                         variant="destructive"
                                         onClick={() => removeHeir(showConfirmDialog)}
-                                        className="bg-destructive flex-1"
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90 flex-1"
                                     >
                                         Remove
                                     </Button>
                                     <Button
                                         variant="outline"
                                         onClick={() => setShowConfirmDialog(null)}
-                                        className="flex-1"
+                                        className="border-border text-foreground hover:bg-muted flex-1"
                                     >
                                         Cancel
                                     </Button>

@@ -74,7 +74,7 @@ export default function Home() {
 
         try {
             // Simulate API call delay
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            await new Promise((resolve) => setTimeout(resolve, 1500))
 
             // Mock: Load token balances from blockchain
             setTokenBalances(mockTokenBalances)
@@ -83,7 +83,7 @@ export default function Home() {
             const existingPlan = false // Replace with actual contract call
             if (existingPlan) {
                 setHasPlan(true)
-                setPlanDueDate("2026-01-01")
+                setPlanDueDate("2026-05-31")
                 // Load existing heirs data
                 setHeirs([
                     {
@@ -107,7 +107,7 @@ export default function Home() {
 
         try {
             // Simulate contract interaction
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            await new Promise((resolve) => setTimeout(resolve, 2000))
 
             setPlanDueDate(dueDate)
             setHasPlan(true)
@@ -141,15 +141,19 @@ export default function Home() {
         }
     }
 
+    const handleDueDateChange = (date: string) => {
+        setPlanDueDate(date)
+    }
+
     const handleSaveAndApprove = async () => {
         setIsSaving(true)
 
         try {
             // Simulate approval process
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            await new Promise((resolve) => setTimeout(resolve, 3000))
 
             // Mock: Call smart contract createLastWill
-            console.log("Creating will with:", {
+            console.log("Creating/updating will with:", {
                 dueDate: planDueDate,
                 heirs: heirs.map((h) => h.address),
                 tokenAmounts: heirs.map((h) => h.tokenAmounts),
@@ -209,6 +213,7 @@ export default function Home() {
                         heirs={heirs}
                         onHeirsChange={setHeirs}
                         onSaveAndApprove={handleSaveAndApprove}
+                        onDueDateChange={handleDueDateChange}
                         isReadOnly={isPlanReadOnly}
                         isSaving={isSaving}
                     />
