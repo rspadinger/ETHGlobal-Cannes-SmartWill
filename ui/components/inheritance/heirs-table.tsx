@@ -56,6 +56,37 @@ export default function HeirsTable({
         setShowConfirmDialog(null)
     }
 
+    const updateHeirAddress = (heirId: string, address: string) => {
+        onHeirsChange(heirs.map((heir) => (heir.id === heirId ? { ...heir, address } : heir)))
+    }
+
+    const updateHeirTokenAmount = (heirId: string, symbol: string, amount: number) => {
+        onHeirsChange(
+            heirs.map((heir) =>
+                heir.id === heirId
+                    ? { ...heir, tokenAmounts: { ...heir.tokenAmounts, [symbol]: amount } }
+                    : heir
+            )
+        )
+    }
+
+    const distributeEqually = () => {
+        if (heirs.length === 0) {
+            return
+        }
+
+        const updatedHeirs = heirs.map((heir) => {
+            const newTokenAmounts = { ...heir.tokenAmounts }
+            tokenBalances.forEach((token) => {
+                const sharePerHeir = Math.floor((token.balance / heirs.length) * 100) / 100
+                newTokenAmounts[token.symbol] = sharePerHeir
+            })
+            return { ...heir, tokenAmounts: newTokenAmounts }
+        })
+
+        onHeirsChange(updatedHeirs)
+    }
+
     const validateForm = () => {
         if (heirs.length === 0) return false
 
@@ -152,6 +183,31 @@ export default function HeirsTable({
                     </Button>
                 )}
 
+                {/* Distribute Equally Button */}
+                {heirs.length > 0 && !isReadOnly && (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    onClick={distributeEqually}
+                                    variant="secondary"
+                                    size="lg"
+                                    className="w-full"
+                                    disabled={heirs.length === 0}
+                                >
+                                    Distribute Tokens Equally
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>
+                                    Automatically set amounts so each heir receives an equal share of each
+                                    token
+                                </p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                )}
+
                 {/* Validation Errors */}
                 {overAllocatedTokens.length > 0 && (
                     <Alert variant="destructive">
@@ -210,7 +266,7 @@ export default function HeirsTable({
                     </div>
                 )}
 
-                {/* Confirmation Dialog */}
+                {/* Confirmation  Dialog */}
                 {showConfirmDialog && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                         <Card className="w-full max-w-md mx-4">
