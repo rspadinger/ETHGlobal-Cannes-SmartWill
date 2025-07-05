@@ -37,6 +37,8 @@ export default function HeirsTable({
     isReadOnly = false,
     isSaving = false,
 }: HeirsTableProps) {
+    const [showConfirmDialog, setShowConfirmDialog] = useState<string | null>(null)
+
     const addHeir = () => {
         const newHeir: Heir = {
             id: Date.now().toString(),
@@ -49,6 +51,11 @@ export default function HeirsTable({
         onHeirsChange([...heirs, newHeir])
     }
 
+    const removeHeir = (heirId: string) => {
+        onHeirsChange(heirs.filter((heir) => heir.id !== heirId))
+        setShowConfirmDialog(null)
+    }
+
     const validateForm = () => {
         if (heirs.length === 0) return false
 
@@ -58,10 +65,29 @@ export default function HeirsTable({
             return hasValidAddress && hasTokenAmount
         })
 
-        return hasValidHeir
+        const noOverAllocation = tokenBalances.every((token) => {
+            const totalAllocated = heirs.reduce(
+                (sum, heir) => sum + (heir.tokenAmounts[token.symbol] || 0),
+                0
+            )
+            return totalAllocated <= token.balance
+        })
+
+        return hasValidHeir && noOverAllocation
+    }
+
+    const getOverAllocatedTokens = () => {
+        return tokenBalances.filter((token) => {
+            const totalAllocated = heirs.reduce(
+                (sum, heir) => sum + (heir.tokenAmounts[token.symbol] || 0),
+                0
+            )
+            return totalAllocated > token.balance
+        })
     }
 
     const isFormValid = validateForm()
+    const overAllocatedTokens = getOverAllocatedTokens()
 
     const formatDate = (dateString: string) => {
         return new Date(dateString).toLocaleDateString("en-US", {
@@ -126,6 +152,17 @@ export default function HeirsTable({
                     </Button>
                 )}
 
+                {/* Validation Errors */}
+                {overAllocatedTokens.length > 0 && (
+                    <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription>
+                            Total allocation exceeds balance for:{" "}
+                            {overAllocatedTokens.map((t) => t.symbol).join(", ")}
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 {/* Save and Approve Button */}
                 {!isReadOnly && (
                     <TooltipProvider>
@@ -154,7 +191,7 @@ export default function HeirsTable({
                     </TooltipProvider>
                 )}
 
-                {/* Post-Save  State */}
+                {/* Post-Save State */}
                 {isReadOnly && (
                     <div className="text-center space-y-4">
                         <Alert>
@@ -170,6 +207,38 @@ export default function HeirsTable({
                             <ExternalLink className="h-4 w-4 mr-2" />
                             View Your Will on Block Explorer
                         </Button>
+                    </div>
+                )}
+
+                {/* Confirmation Dialog */}
+                {showConfirmDialog && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <Card className="w-full max-w-md mx-4">
+                            <CardHeader>
+                                <CardTitle>Remove Heir</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <p>
+                                    Are you sure you want to remove this heir? This action cannot be undone.
+                                </p>
+                                <div className="flex space-x-2">
+                                    <Button
+                                        variant="destructive"
+                                        onClick={() => removeHeir(showConfirmDialog)}
+                                        className="bg-destructive flex-1"
+                                    >
+                                        Remove
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setShowConfirmDialog(null)}
+                                        className="flex-1"
+                                    >
+                                        Cancel
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
                 )}
             </CardContent>
