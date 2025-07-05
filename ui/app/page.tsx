@@ -5,7 +5,8 @@ import type React from "react"
 import { useState, useEffect, useMemo } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
-import { useAccount, useBalance, useReadContracts } from "wagmi"
+import { useAccount, useBalance, useReadContracts, useConfig } from "wagmi"
+import { waitForTransactionReceipt } from "wagmi/actions"
 import { erc20Abi, zeroAddress, isAddress } from "viem"
 
 import { Coins, HandCoins } from "lucide-react"
@@ -16,6 +17,7 @@ import PlanForm from "@/components/inheritance/plan-form"
 import HeirsTable from "@/components/inheritance/heirs-table"
 
 import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHelper"
+import { isValidFutureDate, getIsoDateFromTimestamp, getTimestampFromIsoDate } from "@/lib/validators"
 
 interface TokenBalance {
     symbol: string
@@ -34,6 +36,8 @@ export default function Home() {
     const { user, ready, authenticated } = usePrivy()
     const { address } = useAccount()
     const { data: nativeBalance, isLoading: loadingNativeBalance } = useBalance({ address })
+    const wagmiConfig = useConfig()
+    const { executeWrite } = useSmartContractWrite()
 
     // State management
     const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([])
@@ -45,6 +49,7 @@ export default function Home() {
     const [isCreatingPlan, setIsCreatingPlan] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [isPlanReadOnly, setIsPlanReadOnly] = useState(false)
+    const [txHash, setTxHash] = useState<string | null>(null)
 
     // get whitelisted token addresses => get balances & names
     const { data: whitelistedTokens } = useSmartContractRead({
@@ -88,10 +93,11 @@ export default function Home() {
         contracts: ERC20Contracts,
     })
 
-    // call getCreatedWill
+    // call creatorToWill to get the address of the will
     const { data: createdWill } = useSmartContractRead({
         contract: "WillFactory",
-        functionName: "getCreatedWill",
+        functionName: "creatorToWill",
+        args: [address],
     })
 
     const createdWillReady = !!createdWill && createdWill !== zeroAddress && isAddress(createdWill)
@@ -148,19 +154,21 @@ export default function Home() {
             setTokenBalances(tokens)
 
             if (createdWill && createdWill !== zeroAddress && dueDate !== undefined) {
+                const formattedDate = getIsoDateFromTimestamp(dueDate)
+
                 setHasPlan(true)
                 setPlanAddress(createdWill)
-                setPlanDueDate(dueDate)
+                setPlanDueDate(formattedDate)
 
                 //@todo Load existing heirs data
-                setHeirs([
-                    {
-                        id: "1",
-                        address: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b1",
-                        tokenAmounts: { USDC: 617.28, POLS: 250.0, LINK: 12.88 },
-                    },
-                ])
-                setIsPlanReadOnly(true)
+                // setHeirs([
+                //     {
+                //         id: "1",
+                //         address: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b1",
+                //         tokenAmounts: { USDC: 617.28, POLS: 250.0, LINK: 12.88 },
+                //     },
+                // ])
+                //setIsPlanReadOnly(true)
             }
         } catch (error) {
             console.error("Error loading user data:", error)
@@ -170,15 +178,37 @@ export default function Home() {
         }
     }
 
-    const handleCreatePlan = async (dueDate: string) => {
-        setIsCreatingPlan(true)
+    const handleCreatePlan = async (formattedDueDate: string) => {
+        if (!address || isCreatingPlan) return
+
+        if (!isValidFutureDate(formattedDueDate)) {
+            alert("Please select a date at least 1 day in the future.")
+            return
+        }
+
+        // call createLastWill
+        const { result: hash, status } = await executeWrite({
+            contract: "WillFactory",
+            functionName: "createLastWill",
+            args: [dueDateTimestamp],
+        })
+
+        if (!hash) {
+            if (status && status.includes("User denied the transaction.")) {
+                return
+            }
+
+            toast.error(status || "Transaction failed")
+            return
+        }
 
         try {
-            // Simulate contract interaction
-            await new Promise((resolve) => setTimeout(resolve, 2000))
+            setIsCreatingPlan(true)
 
-            //@todo WF::createLastWill
-            setPlanDueDate(dueDate)
+            // wait for the txn to complete
+            const transactionReceipt = await waitForTransactionReceipt(wagmiConfig, { hash })
+
+            setPlanDueDate(formattedDueDate)
             setHasPlan(true)
 
             // Initialize with one empty heir
@@ -194,6 +224,7 @@ export default function Home() {
             ])
 
             toast.success("Inheritance plan created successfully!")
+            setTxHash(hash)
 
             // Smooth scroll to heirs section
             setTimeout(() => {
@@ -202,27 +233,35 @@ export default function Home() {
                     heirsSection.scrollIntoView({ behavior: "smooth" })
                 }
             }, 100)
-        } catch (error) {
-            console.error("Error creating plan:", error)
+        } catch (err) {
+            console.error("Error creating plan:", err)
             toast.error("Failed to create inheritance plan")
         } finally {
             setIsCreatingPlan(false)
         }
     }
 
-    const handleDueDateChange = (date: string) => {
-        //@todo LW::updateDueDate
-        setPlanDueDate(date)
+    const handleDueDateChange = (formattedDueDate: string) => {
+        setPlanDueDate(formattedDueDate)
     }
 
     const handleSaveAndApprove = async () => {
+        if (!isValidFutureDate(planDueDate)) {
+            alert("Please select a date at least 1 day in the future.")
+            return
+        }
+
         setIsSaving(true)
 
         try {
             // Simulate approval process
-            await new Promise((resolve) => setTimeout(resolve, 3000))
+            await new Promise((resolve) => setTimeout(resolve, 1000))
 
-            //@todo iterate all heirs => LW::addHeir && LW::updateDueDate (if different)
+            //@todo LW::updateDueDate => if date has changed
+            const changedTS = getTimestampFromIsoDate(planDueDate)
+            console.log("Date change: ", dueDate, changedTS)
+
+            //@todo iterate all heirs => LW::addHeir (if new heir was added)
             // Mock: Call smart contract createLastWill
             console.log("Creating/updating will with:", {
                 dueDate: planDueDate,

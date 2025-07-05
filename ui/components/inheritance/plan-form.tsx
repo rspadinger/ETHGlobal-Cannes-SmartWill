@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Calendar, Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { isValidFutureDate } from "@/lib/validators"
 
 interface PlanFormProps {
     onCreatePlan: (date: string) => void
@@ -23,28 +24,23 @@ export default function PlanForm({ onCreatePlan, isCreating }: PlanFormProps) {
     })
     const [error, setError] = useState("")
 
-    const validateDate = (dateString: string) => {
-        const selected = new Date(dateString)
-        const tomorrow = new Date()
-        tomorrow.setDate(tomorrow.getDate() + 1)
-
-        if (selected <= tomorrow) {
-            setError("Inheritance date must be at least 24 hours in the future")
-            return false
-        }
-
-        setError("")
-        return true
-    }
-
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newDate = e.target.value
         setSelectedDate(newDate)
-        validateDate(newDate)
+
+        if (!isValidFutureDate(newDate)) {
+            setError("Inheritance date must be at least 24 hours in the future")
+            return
+        } else {
+            setError("")
+        }
     }
 
     const handleCreatePlan = () => {
-        if (validateDate(selectedDate)) {
+        if (!isValidFutureDate(selectedDate)) {
+            setError("Inheritance date must be at least 24 hours in the future")
+            return
+        } else {
             onCreatePlan(selectedDate)
         }
     }

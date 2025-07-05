@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import HeirRow from "./heir-row"
+import { isValidFutureDate } from "@/lib/validators"
 
 interface TokenBalance {
     symbol: string
@@ -48,31 +49,11 @@ export default function HeirsTable({
     const [localDueDate, setLocalDueDate] = useState(dueDate)
     const [dateError, setDateError] = useState("")
 
-    // Update local date when prop changes
-    useEffect(() => {
-        setLocalDueDate(dueDate)
-    }, [dueDate])
-
-    const validateDate = useCallback((dateString: string) => {
-        if (!dateString) return false
-
-        const selected = new Date(dateString)
-        const tomorrow = new Date()
-        tomorrow.setDate(tomorrow.getDate() + 1)
-
-        if (selected <= tomorrow) {
-            return false
-        }
-
-        return true
-    }, [])
-
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newDate = e.target.value
         setLocalDueDate(newDate)
 
-        // Validate and set error
-        if (!validateDate(newDate)) {
+        if (!isValidFutureDate(newDate)) {
             setDateError("Inheritance date must be at least 24 hours in the future")
         } else {
             setDateError("")
@@ -133,7 +114,7 @@ export default function HeirsTable({
 
     const isFormValid = useCallback(() => {
         if (heirs.length === 0) return false
-        if (!validateDate(localDueDate)) return false
+        if (!isValidFutureDate(localDueDate)) return false
 
         const hasValidHeir = heirs.some((heir) => {
             const hasValidAddress = /^0x[a-fA-F0-9]{40}$/.test(heir.address)
@@ -150,7 +131,7 @@ export default function HeirsTable({
         })
 
         return hasValidHeir && noOverAllocation
-    }, [heirs, localDueDate, tokenBalances, validateDate])
+    }, [heirs, localDueDate, tokenBalances])
 
     const getOverAllocatedTokens = () => {
         return tokenBalances.filter((token) => {
@@ -163,14 +144,6 @@ export default function HeirsTable({
     }
 
     const overAllocatedTokens = getOverAllocatedTokens()
-
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-        })
-    }
 
     return (
         <Card className="card-light">
@@ -205,16 +178,6 @@ export default function HeirsTable({
                         <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                     </div>
                     {dateError && <p className="text-destructive text-sm">{dateError}</p>}
-                </div>
-
-                {/* Token Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                    {tokenBalances.map((token) => (
-                        <div key={token.symbol} className="p-3 rounded-lg border border-border bg-muted/20">
-                            <p className="text-sm text-muted-foreground">{token.symbol} Available</p>
-                            <p className="text-lg font-bold">{token.balance.toLocaleString()}</p>
-                        </div>
-                    ))}
                 </div>
             </CardHeader>
 
