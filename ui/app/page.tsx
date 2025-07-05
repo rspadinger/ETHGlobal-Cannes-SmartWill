@@ -7,7 +7,7 @@ import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
 import { useAccount, useBalance, useReadContracts, useConfig } from "wagmi"
 import { waitForTransactionReceipt } from "wagmi/actions"
-import { erc20Abi, zeroAddress, isAddress } from "viem"
+import { erc20Abi, zeroAddress, isAddress, formatUnits } from "viem"
 
 import { Coins, HandCoins } from "lucide-react"
 import { toast } from "sonner"
@@ -20,8 +20,10 @@ import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHel
 import { isValidFutureDate, getIsoDateFromTimestamp, getTimestampFromIsoDate } from "@/lib/validators"
 
 interface TokenBalance {
+    address: string
     symbol: string
     name: string
+    decimals: number
     balance: number
     icon: React.ReactNode
 }
@@ -111,12 +113,46 @@ export default function Home() {
         overrideAddress: createdWillReady ? createdWill : undefined,
     })
 
+    // call getHeirs on LastWill if createdWillReady => make sure this is called by the owner
+    const { data: heirsFromPlan } = useSmartContractRead({
+        contract: "LastWill",
+        functionName: "getHeirs",
+        args: [],
+        enabled: createdWillReady,
+        overrideAddress: createdWillReady ? createdWill : undefined,
+        caller: address,
+    })
+
+    //helper function to map heirs from contract to frontend heir structure
+    const transformHeirs = (heirsFromPlan, tokenBalances) => {
+        const mappedHeirs = heirsFromPlan.map((heir) => {
+            const tokenAmounts: Record<string, number> = {}
+
+            heir.tokens.forEach((tokenAddr: string, index: number) => {
+                const token = tokenBalances.find((t) => t.address.toLowerCase() === tokenAddr.toLowerCase())
+                if (!token) return
+
+                const symbol = token.symbol
+                const decimals = token.decimals
+                tokenAmounts[symbol] = parseFloat(formatUnits(heir.amounts[index], decimals))
+            })
+
+            return {
+                id: heir.wallet.toLowerCase(),
+                address: heir.wallet,
+                tokenAmounts,
+            }
+        })
+
+        return mappedHeirs
+    }
+
     // Load user data when wallet connects
     useEffect(() => {
         if (authenticated && address) {
             loadUserData()
         }
-    }, [authenticated, address, tokenData, nativeBalance, createdWill, dueDate])
+    }, [authenticated, address, tokenData, nativeBalance, createdWill, dueDate, heirsFromPlan])
 
     const loadUserData = async () => {
         setIsLoadingBalances(true)
@@ -126,16 +162,21 @@ export default function Home() {
 
             // iterate all returned ERC20 token data and set tokenBalances
             const tokens: TokenBalance[] = []
+            const [tokenAddresses] = whitelistedTokens
 
             for (let i = 0; i < tokenData.length; i += 4) {
+                const tokenIndex = i / 4
+                const address = tokenAddresses[tokenIndex] as string
                 const symbol = tokenData[i] as string
                 const name = tokenData[i + 1] as string
                 const decimals = tokenData[i + 2] as number
                 const rawBalance = tokenData[i + 3] as bigint
 
                 tokens.push({
+                    address,
                     symbol,
                     name,
+                    decimals,
                     balance: Number(rawBalance) / 10 ** decimals,
                     icon: <Coins className="h-6 w-6" />,
                 })
@@ -144,8 +185,10 @@ export default function Home() {
             // add native token at the start
             if (nativeBalance) {
                 tokens.unshift({
+                    address: zeroAddress,
                     symbol: nativeBalance.symbol || "POL",
                     name: nativeBalance.symbol === "ETH" ? "Ether" : nativeBalance.symbol || "Polygon",
+                    decimals: 18,
                     balance: Number(nativeBalance.value) / 10 ** nativeBalance.decimals,
                     icon: <HandCoins className="h-6 w-6" />,
                 })
@@ -160,15 +203,10 @@ export default function Home() {
                 setPlanAddress(createdWill)
                 setPlanDueDate(formattedDate)
 
-                //@todo Load existing heirs data
-                // setHeirs([
-                //     {
-                //         id: "1",
-                //         address: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b1",
-                //         tokenAmounts: { USDC: 617.28, POLS: 250.0, LINK: 12.88 },
-                //     },
-                // ])
-                //setIsPlanReadOnly(true)
+                const transformedHeirs = transformHeirs(heirsFromPlan, tokenBalances)
+                setHeirs(transformedHeirs)
+
+                setIsPlanReadOnly(true)
             }
         } catch (error) {
             console.error("Error loading user data:", error)
@@ -259,7 +297,7 @@ export default function Home() {
 
             //@todo LW::updateDueDate => if date has changed
             const changedTS = getTimestampFromIsoDate(planDueDate)
-            console.log("Date change: ", dueDate, changedTS)
+            //console.log("Date change: ", dueDate, changedTS)
 
             //@todo iterate all heirs => LW::addHeir (if new heir was added)
             // Mock: Call smart contract createLastWill
