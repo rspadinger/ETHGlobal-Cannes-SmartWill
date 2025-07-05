@@ -11,6 +11,7 @@ import { getIsoDateFromTimestamp } from "@/lib/validators"
 
 interface InheritancePlan {
     id: string
+    address: string
     dueDate: string
     tokenAmounts: { [symbol: string]: number }
     testatorAddress: string
@@ -107,17 +108,22 @@ export default function HeirPlanCard({ plan, planNumber, onExecute }: HeirPlanCa
 
             <CardContent className="space-y-6">
                 {/* Description */}
-                <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                        The button below will become active once the due date is reached. At that point, you
-                        can execute the plan and claim your eligible tokens.
-                    </AlertDescription>
-                </Alert>
+                {!plan.executed && (
+                    <Alert>
+                        <AlertCircle className="h-4 w-4" />
+
+                        <AlertDescription>
+                            The button below will become active once the due date is reached. At that point,
+                            you can execute the plan and claim your eligible tokens.
+                        </AlertDescription>
+                    </Alert>
+                )}
 
                 {/* Token List */}
                 <div>
-                    <h3 className="text-lg font-semibold mb-4">Tokens You Will Receive</h3>
+                    <h3 className="text-lg font-semibold mb-4">
+                        {plan.executed ? "Tokens You Received" : "Tokens You Will Receive"}
+                    </h3>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {Object.entries(plan.tokenAmounts).map(([symbol, amount]) => (
                             <div
@@ -151,10 +157,14 @@ export default function HeirPlanCard({ plan, planNumber, onExecute }: HeirPlanCa
                             <span className="text-muted-foreground">Status:</span>
                             <span
                                 className={`ml-2 font-medium ${
-                                    executable ? "text-green-600" : "text-orange-600"
+                                    plan.executed
+                                        ? "text-red-500"
+                                        : executable
+                                        ? "text-green-600"
+                                        : "text-red-500"
                                 }`}
                             >
-                                {executable ? "Ready to Execute" : "Pending"}
+                                {plan.executed ? "Executed" : executable ? "Ready to Execute" : "Pending"}
                             </span>
                         </div>
                     </div>

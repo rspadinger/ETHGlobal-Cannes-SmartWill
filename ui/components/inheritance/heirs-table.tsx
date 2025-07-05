@@ -50,6 +50,13 @@ export default function HeirsTable({
     const [localDueDate, setLocalDueDate] = useState(dueDate)
     const [dateError, setDateError] = useState("")
 
+    //const dueDatePassed(): boolean {}
+    const isDueDatePassed = (dueDate: string | Date): boolean => {
+        const due = new Date(dueDate)
+        const now = new Date()
+        return now >= due
+    }
+
     function hasReadOnlyHeirs(heirs: Heir[]): boolean {
         return heirs.some((heir) => heir.readonly !== false)
     }
@@ -158,8 +165,11 @@ export default function HeirsTable({
     return (
         <Card className="card-light">
             <CardHeader>
-                <CardTitle className="text-2xl font-bold">Your Inheritance Plan</CardTitle>
-
+                <CardTitle className="text-2xl font-bold">
+                    {isDueDatePassed(dueDate)
+                        ? "Your Inheritance Plan (Locked After Due Date)"
+                        : "Your Inheritance Plan"}
+                </CardTitle>
                 {/* Editable Due Date */}
                 <div className="space-y-2 mt-2">
                     <div className="flex items-center space-x-2">
@@ -183,6 +193,7 @@ export default function HeirsTable({
                             type="date"
                             value={localDueDate}
                             onChange={handleDateChange}
+                            disabled={isDueDatePassed(dueDate)}
                             className="text-lg py-3 pl-10"
                         />
                         <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -244,7 +255,7 @@ export default function HeirsTable({
                                         removeHeir(heir.id)
                                     }
                                 }}
-                                canRemove={true}
+                                canRemove={!isDueDatePassed(dueDate)}
                                 isReadOnly={heir.readonly ?? true}
                             />
                         ))
@@ -257,6 +268,7 @@ export default function HeirsTable({
                         onClick={addHeir}
                         variant="outline"
                         className="border-cyan-500 text-cyan-500 hover:bg-cyan-500 hover:text-white"
+                        disabled={isDueDatePassed(dueDate)}
                     >
                         <Plus className="h-4 w-4 mr-2" />
                         Add Heir
@@ -264,7 +276,7 @@ export default function HeirsTable({
                 )}
 
                 {/* Distribute Equally Button */}
-                {heirs.length > 0 && !hasReadOnlyHeirs(heirs) && (
+                {heirs.length > 0 && !hasReadOnlyHeirs(heirs) && !isDueDatePassed(dueDate) && (
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -326,6 +338,8 @@ export default function HeirsTable({
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                                         Waiting for your approval...
                                     </>
+                                ) : isDueDatePassed(dueDate) ? (
+                                    "Save and Approve Inheritance (Disabled)"
                                 ) : (
                                     "Save and Approve Inheritance"
                                 )}
