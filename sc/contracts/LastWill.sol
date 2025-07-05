@@ -102,7 +102,7 @@ contract LastWill {
         address wallet,
         address[] calldata tokens,
         uint256[] calldata amounts
-    ) public payable onlyOwnerOrFactory {
+    ) public payable onlyOwner {
         if (block.timestamp > dueDate) revert DueDatePassed();
 
         // Check if wallet is already a heir
@@ -160,7 +160,7 @@ contract LastWill {
         emit HeirAdded(wallet, tokens, amounts);
     }
 
-    function removeHeir(address wallet) external onlyOwner {
+    function removeHeir(address wallet) public onlyOwner {
         if (block.timestamp > dueDate) revert DueDatePassed();
 
         (Heir memory heirToRemove, uint256 index, , bool found) = getHeirByAddress(wallet);
@@ -175,6 +175,8 @@ contract LastWill {
 
             // Return ERC20 tokens to owner
             for (uint256 i = 0; i < heirToRemove.tokens.length; i++) {
+                if (heirToRemove.tokens[i] == address(0)) continue;
+
                 if (heirToRemove.amounts[i] > 0) {
                     escrow.transferERC20(
                         address(this),
@@ -195,7 +197,30 @@ contract LastWill {
         }
     }
 
-    //@todo add modifyHeir function
+    function modifyPlan(
+        uint256 _dueDate,
+        Heir[] calldata heirsToAdd,
+        address[] calldata heirsToDelete
+    ) public payable onlyOwner {
+        if (block.timestamp > dueDate) revert DueDatePassed();
+
+        // Update due date if changed
+        if (_dueDate != dueDate) {
+            if (_dueDate <= block.timestamp) revert InvalidDueDate();
+            dueDate = _dueDate;
+            emit DueDateUpdated(_dueDate);
+        }
+
+        // Remove heirs
+        for (uint256 i = 0; i < heirsToDelete.length; i++) {
+            removeHeir(heirsToDelete[i]);
+        }
+
+        // Add new heirs
+        for (uint256 i = 0; i < heirsToAdd.length; i++) {
+            addHeir(heirsToAdd[i].wallet, heirsToAdd[i].tokens, heirsToAdd[i].amounts);
+        }
+    }
 
     //execute lastWill for specific heir
     function executeLastWill(address heirAddress) external {

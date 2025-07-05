@@ -237,7 +237,7 @@ describe("LastWill Contract", function () {
             expect(dueDate).to.equal(await lastWill.dueDate())
         })
 
-        it("Should return correct total token amounts ", async function () {
+        it("Should return correct total token amounts", async function () {
             const { lastWill, user1, user2, mockToken1, mockToken2 } = await loadFixture(
                 deployContractFixture
             )
@@ -254,6 +254,75 @@ describe("LastWill Contract", function () {
             expect(tokenAmounts[0]).to.equal(ethers.parseEther("100"))
             expect(tokenAmounts[1]).to.equal(ethers.parseUnits("100", 6))
             expect(totalNativeAmount).to.equal(0)
+        })
+    })
+
+    describe("Plan Modification", function () {
+        it("Should allow owner to modify plan with new due date", async function () {
+            const { lastWill, user1 } = await loadFixture(deployContractFixture)
+            const newDueDate = (await time.latest()) + 172800 // 2 days from now
+
+            await expect(lastWill.connect(user1).modifyPlan(newDueDate, [], []))
+                .to.emit(lastWill, "DueDateUpdated")
+                .withArgs(newDueDate)
+
+            expect(await lastWill.dueDate()).to.equal(newDueDate)
+        })
+
+        it("Should allow owner to modify plan by adding and removing heirs", async function () {
+            const { lastWill, user1, user2, user3, mockToken1 } = await loadFixture(deployContractFixture)
+
+            // First add an initial heir
+            const initialTokens = [mockToken1.target]
+            const initialAmounts = [ethers.parseEther("100")]
+            await lastWill.connect(user1).addHeir(user2.address, initialTokens, initialAmounts)
+
+            // Now modify the plan
+            const newHeir = {
+                wallet: user3.address,
+                tokens: [mockToken1.target],
+                amounts: [ethers.parseEther("50")],
+                executed: false,
+            }
+
+            await expect(
+                lastWill.connect(user1).modifyPlan(await lastWill.dueDate(), [newHeir], [user2.address])
+            )
+                .to.emit(lastWill, "HeirRemoved")
+                .withArgs(user2.address)
+                .to.emit(lastWill, "HeirAdded")
+                .withArgs(user3.address, newHeir.tokens, newHeir.amounts)
+
+            // Verify the changes
+            const [, , , foundOldHeir] = await lastWill.getHeirByAddress(user2.address)
+            const [newHeirData, , , foundNewHeir] = await lastWill.getHeirByAddress(user3.address)
+
+            expect(foundOldHeir).to.be.false
+            expect(foundNewHeir).to.be.true
+            expect(newHeirData.wallet).to.equal(user3.address)
+            expect(newHeirData.tokens[0]).to.equal(mockToken1.target)
+            expect(newHeirData.amounts[0]).to.equal(ethers.parseEther("50"))
+        })
+
+        it("Should not allow non-owner to modify plan", async function () {
+            const { lastWill, user2 } = await loadFixture(deployContractFixture)
+            const newDueDate = (await time.latest()) + 172800
+
+            await expect(
+                lastWill.connect(user2).modifyPlan(newDueDate, [], [])
+            ).to.be.revertedWithCustomError(lastWill, "NotOwner")
+        })
+
+        it("Should not allow modifying plan after due date ", async function () {
+            const { lastWill, user1 } = await loadFixture(deployContractFixture)
+
+            // Move time forward past due date
+            await time.increase(86401) // 1 day + 1 second
+
+            const newDueDate = (await time.latest()) + 172800
+            await expect(
+                lastWill.connect(user1).modifyPlan(newDueDate, [], [])
+            ).to.be.revertedWithCustomError(lastWill, "DueDatePassed")
         })
     })
 })
