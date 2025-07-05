@@ -1,178 +1,171 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import type React from "react"
+
+import { useState, useEffect } from "react"
 import { usePrivy } from "@privy-io/react-auth"
-import { zeroAddress, isAddress, formatUnits } from "viem"
 // @ts-expect-error working fine
-import { useAccount, useConfig } from "wagmi"
-import { waitForTransactionReceipt } from "wagmi/actions"
-import { readContract } from "@wagmi/core"
-import { Clock, Gift } from "lucide-react"
+import { useAccount } from "wagmi"
+import { DollarSign, LinkIcon, Coins } from "lucide-react"
 import { toast } from "sonner"
 
-import HeirPlanCard from "@/components/inheritance/heir-plan-card"
-import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHelper"
-import { useERC20TokenData } from "@/lib/web3/tokenHelper"
-import { getIsoDateFromTimestamp } from "@/lib/validators"
-import lastWillAbi from "@/abi/LastWill.json"
+import TokenOverview from "@/components/inheritance/token-overview"
+import PlanForm from "@/components/inheritance/plan-form"
+import HeirsTable from "@/components/inheritance/heirs-table"
 
-interface InheritancePlan {
-    id: string
-    adress: string
-    dueDate: string
-    tokenAmounts: { [symbol: string]: number }
-    testatorAddress: string
-    executed: boolean
+interface TokenBalance {
+    symbol: string
+    name: string
+    balance: number
+    icon: React.ReactNode
 }
 
-export default function HeirPage() {
+interface Heir {
+    id: string
+    address: string
+    tokenAmounts: { [symbol: string]: number }
+}
+
+export default function Home() {
     const { user, ready, authenticated } = usePrivy()
     const { address } = useAccount()
-    const wagmiConfig = useConfig()
-    const { executeWrite } = useSmartContractWrite()
-
-    const nativeSymbol = process.env.NEXT_PUBLIC_NATIVE_SYMBOL //@note use chainId to get native token symbol
 
     // State management
-    const [inheritancePlans, setInheritancePlans] = useState<InheritancePlan[]>([])
-    const [isLoading, setIsLoading] = useState(false)
-    const [isExecuting, setIsExecuting] = useState(false)
+    const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([])
+    const [isLoadingBalances, setIsLoadingBalances] = useState(false)
+    const [hasPlan, setHasPlan] = useState(false)
+    const [planDueDate, setPlanDueDate] = useState("")
+    const [heirs, setHeirs] = useState<Heir[]>([])
+    const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
+    const [isPlanReadOnly, setIsPlanReadOnly] = useState(false)
 
-    //get all wills for the heir
-    const { data: heirWills } = useSmartContractRead({
-        contract: "WillFactory",
-        functionName: "getInheritedWills",
-        args: [],
-        caller: address,
-    })
+    // Mock token data - replace with actual blockchain calls
+    const mockTokenBalances: TokenBalance[] = [
+        {
+            symbol: "USDC",
+            name: "USD Coin",
+            balance: 1234.56,
+            icon: <DollarSign className="h-6 w-6" />,
+        },
+        {
+            symbol: "POLS",
+            name: "Polkastarter",
+            balance: 500.0,
+            icon: <Coins className="h-6 w-6" />,
+        },
+        {
+            symbol: "LINK",
+            name: "Chainlink",
+            balance: 25.75,
+            icon: <LinkIcon className="h-6 w-6" />,
+        },
+    ]
 
-    //create token - symbol map
-    const { tokenData, tokenAddresses } = useERC20TokenData()
-    const tokenSymbolMap = useMemo(() => {
-        if (!tokenData || tokenData.length === 0) return {}
-
-        const map: Record<string, string> = {}
-        for (let i = 0; i < tokenData.length; i += 4) {
-            const tokenAddress = tokenAddresses[i / 4]
-            const symbol = tokenData[i]
-            map[tokenAddress.toLowerCase()] = symbol
-        }
-        return map
-    }, [tokenData, tokenAddresses])
-
+    // Load user data when wallet connects
     useEffect(() => {
-        if (!authenticated || !address || !heirWills || !Array.isArray(heirWills)) return
-        loadPlans()
-    }, [heirWills, tokenSymbolMap, address])
-
-    const loadPlans = async () => {
-        setIsLoading(true)
-
-        const newPlans: InheritancePlan[] = []
-
-        for (let i = 0; i < heirWills.length; i++) {
-            const will = heirWills[i]
-
-            if (!will || will === zeroAddress) continue
-
-            try {
-                const [dueDate, owner, heirDataRaw] = await Promise.all([
-                    readContract(wagmiConfig, {
-                        address: will,
-                        abi: lastWillAbi.abi,
-                        functionName: "dueDate",
-                    }),
-                    readContract(wagmiConfig, {
-                        address: will,
-                        abi: lastWillAbi.abi,
-                        functionName: "owner",
-                    }),
-                    readContract(wagmiConfig, {
-                        address: will,
-                        abi: lastWillAbi.abi,
-                        functionName: "getHeirByAddress",
-                        args: [address],
-                    }),
-                ])
-
-                const heirData = heirDataRaw[0]
-
-                if (!heirData || !dueDate || !owner) continue
-
-                const tokenAmounts: { [symbol: string]: number } = {}
-                const tokens: string[] = heirData.tokens
-                const amounts: bigint[] = heirData.amounts
-
-                tokens.forEach((tokenAddr, idx) => {
-                    const symbol = tokenSymbolMap[tokenAddr.toLowerCase()] ?? nativeSymbol
-                    const tokenIdx = tokenAddresses.findIndex(
-                        (addr) => addr.toLowerCase() === tokenAddr.toLowerCase()
-                    )
-                    const decimals = Number(tokenData?.[tokenIdx * 4 + 2] || 18) // "decimals" is third in group of 4
-                    const amount = parseFloat(formatUnits(amounts[idx], decimals))
-                    tokenAmounts[symbol] = amount
-                })
-
-                newPlans.push({
-                    id: `will_${i + 1}`,
-                    address: will,
-                    dueDate: getIsoDateFromTimestamp(dueDate),
-                    tokenAmounts,
-                    testatorAddress: owner,
-                    executed: heirData.executed,
-                })
-
-                newPlans.sort((a, b) => {
-                    // false < true => executed: false will come first
-                    return Number(a.executed) - Number(b.executed)
-                })
-            } catch (err) {
-                console.warn(`Failed to load data for will ${will}:`, err)
-            }
+        if (authenticated && address) {
+            loadUserData()
         }
+    }, [authenticated, address])
 
-        setInheritancePlans(newPlans)
-        //toast.success(`Found ${newPlans.length} inheritance plan${newPlans.length !== 1 ? "s" : ""} for your address`);
-        setIsLoading(false)
-    }
-
-    const handleExecutePlan = async (planAddress: string) => {
-        console.log("planAddress: ", planAddress)
-        if (!address || isExecuting || !planAddress) return
-
-        setIsExecuting(true)
+    const loadUserData = async () => {
+        setIsLoadingBalances(true)
 
         try {
-            // call executeLastWill
-            const { result: hash, status: executeLastWillStatus } = await executeWrite({
-                contract: "LastWill",
-                functionName: "executeLastWill",
-                args: [address],
-                value: 0,
-                overrideAddress: planAddress,
+            // Simulate API call delay
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+
+            // Mock: Load token balances from blockchain
+            setTokenBalances(mockTokenBalances)
+
+            // Mock: Check if user has existing plan
+            const existingPlan = false // Replace with actual contract call
+            if (existingPlan) {
+                setHasPlan(true)
+                setPlanDueDate("2026-01-01")
+                // Load existing heirs data
+                setHeirs([
+                    {
+                        id: "1",
+                        address: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b1",
+                        tokenAmounts: { USDC: 617.28, POLS: 250.0, LINK: 12.88 },
+                    },
+                ])
+                setIsPlanReadOnly(true)
+            }
+        } catch (error) {
+            console.error("Error loading user data:", error)
+            toast.error("Failed to load wallet data")
+        } finally {
+            setIsLoadingBalances(false)
+        }
+    }
+
+    const handleCreatePlan = async (dueDate: string) => {
+        setIsCreatingPlan(true)
+
+        try {
+            // Simulate contract interaction
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+
+            setPlanDueDate(dueDate)
+            setHasPlan(true)
+
+            // Initialize with one empty heir
+            setHeirs([
+                {
+                    id: Date.now().toString(),
+                    address: "",
+                    tokenAmounts: tokenBalances.reduce((acc, token) => {
+                        acc[token.symbol] = 0
+                        return acc
+                    }, {} as { [symbol: string]: number }),
+                },
+            ])
+
+            toast.success("Inheritance plan created successfully!")
+
+            // Smooth scroll to heirs section
+            setTimeout(() => {
+                const heirsSection = document.getElementById("heirs-section")
+                if (heirsSection) {
+                    heirsSection.scrollIntoView({ behavior: "smooth" })
+                }
+            }, 100)
+        } catch (error) {
+            console.error("Error creating plan:", error)
+            toast.error("Failed to create inheritance plan")
+        } finally {
+            setIsCreatingPlan(false)
+        }
+    }
+
+    const handleSaveAndApprove = async () => {
+        setIsSaving(true)
+
+        try {
+            // Simulate approval process
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+
+            // Mock: Call smart contract createLastWill
+            console.log("Creating will with:", {
+                dueDate: planDueDate,
+                heirs: heirs.map((h) => h.address),
+                tokenAmounts: heirs.map((h) => h.tokenAmounts),
             })
 
-            if (!hash) {
-                if (executeLastWillStatus && executeLastWillStatus.includes("User denied the transaction.")) {
-                    return
-                }
-                toast.error(executeLastWillStatus || "Transaction failed")
-                return
-            }
-
-            const transactionReceipt = await waitForTransactionReceipt(wagmiConfig, { hash })
-            //console.log("transactionReceipt: ", transactionReceipt)
-
-            await loadPlans()
-
+            setIsPlanReadOnly(true)
             toast.success(
-                "Inheritance plan executed successfully! Tokens have been transferred to your wallet."
+                `Inheritance plan successfully created! Funds will be locked until ${new Date(
+                    planDueDate
+                ).toLocaleDateString()}`
             )
         } catch (error) {
-            console.error("Error executing plan:", error)
-            toast.error("Failed to execute inheritance plan. Please try again.")
+            console.error("Error saving plan:", error)
+            toast.error("Transaction failed. Please try again.")
         } finally {
-            setIsExecuting(false)
+            setIsSaving(false)
         }
     }
 
@@ -181,45 +174,13 @@ export default function HeirPage() {
         return (
             <div className="app-background container mx-auto px-4 py-8 md:py-12">
                 <div className="text-center max-w-2xl mx-auto">
-                    <Gift className="h-16 w-16 text-cyan-500 mx-auto mb-6" />
-                    <h1 className="hero-title">View Your Inheritance Plans</h1>
+                    <h1 className="hero-title">Secure Your Digital Legacy</h1>
                     <p className="hero-subtitle max-w-3xl">
-                        Connect your wallet to view inheritance plans where you are listed as a beneficiary.
+                        Create an inheritance plan for your cryptocurrency tokens. Set up automatic transfers
+                        to your heirs with our secure smart contract system.
                     </p>
                     <p className="hero-subtitle max-w-3xl mt-2">
-                        Once the due date is reached, you'll be able to execute the plans and claim your
-                        tokens.
-                    </p>
-                </div>
-            </div>
-        )
-    }
-
-    // Loading state
-    if (isLoading) {
-        return (
-            <div className="app-background container mx-auto px-4 py-8 md:py-12">
-                <div className="text-center max-w-2xl mx-auto">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto mb-6"></div>
-                    <h1 className="text-3xl font-bold mb-4">Loading Your Inheritance Plans</h1>
-                    <p className="text-muted-foreground">
-                        Searching the blockchain for inheritance plans where you are a beneficiary...
-                    </p>
-                </div>
-            </div>
-        )
-    }
-
-    // No plans found
-    if (inheritancePlans.length === 0) {
-        return (
-            <div className="app-background container mx-auto px-4 py-8 md:py-12">
-                <div className="text-center max-w-2xl mx-auto">
-                    <Clock className="h-16 w-16 text-muted-foreground mx-auto mb-6" />
-                    <h1 className="text-3xl font-bold mb-4">No Inheritance Plans Found</h1>
-                    <p className="text-muted-foreground max-w-lg mx-auto">
-                        You are not currently listed as a beneficiary in any inheritance plans. If you believe
-                        this is an error, please contact the person who created the will.
+                        Connect your wallet to get started and protect your family's financial future.
                     </p>
                 </div>
             </div>
@@ -228,28 +189,31 @@ export default function HeirPage() {
 
     return (
         <div className="app-background container mx-auto px-4 py-8 md:py-12 space-y-8">
-            {/* Page Header */}
-            <div className="text-center">
-                <h1 className="text-4xl font-bold mb-4">
-                    {inheritancePlans.length === 1 ? "Your Inheritance Plan" : "Your Inheritance Plans"}
-                </h1>
-                <p className="text-muted-foreground max-w-2xl mx-auto">
-                    Below are the inheritance plans where you are listed as a beneficiary. You can execute
-                    each plan once its due date has been reached.
-                </p>
-            </div>
+            {/* Section 1: Wallet Overview */}
+            <TokenOverview balances={tokenBalances} isLoading={isLoadingBalances} />
 
-            {/* Inheritance Plans */}
-            <div className="grid gap-6 max-w-4xl mx-auto">
-                {inheritancePlans.map((plan, index) => (
-                    <HeirPlanCard
-                        key={plan.id}
-                        plan={plan}
-                        planNumber={inheritancePlans.length > 1 ? index + 1 : undefined}
-                        onExecute={() => handleExecutePlan(plan.address)}
+            {/* Section 2: Plan Setup (only if no plan exists) */}
+            {!hasPlan && !isLoadingBalances && (
+                <PlanForm onCreatePlan={handleCreatePlan} isCreating={isCreatingPlan} />
+            )}
+
+            {/* Section 3: Heirs & Distribution (once plan is created) */}
+            {hasPlan && (
+                <div id="heirs-section">
+                    <HeirsTable
+                        dueDate={planDueDate}
+                        tokenBalances={tokenBalances.map((token) => ({
+                            symbol: token.symbol,
+                            balance: token.balance,
+                        }))}
+                        heirs={heirs}
+                        onHeirsChange={setHeirs}
+                        onSaveAndApprove={handleSaveAndApprove}
+                        isReadOnly={isPlanReadOnly}
+                        isSaving={isSaving}
                     />
-                ))}
-            </div>
+                </div>
+            )}
         </div>
     )
 }
