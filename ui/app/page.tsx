@@ -247,6 +247,8 @@ export default function Home() {
 
                 const transformedHeirs = transformHeirs(heirsFromPlan, tokenBalances)
                 setHeirs(transformedHeirs)
+            } else {
+                setHasPlan(false)
             }
         } catch (error) {
             console.error("Error loading user data:", error)
@@ -310,6 +312,38 @@ export default function Home() {
 
     const handleDueDateChange = (formattedDueDate: string) => {
         setPlanDueDate(formattedDueDate)
+    }
+
+    const handlePlanReset = async () => {
+        if (!address || isSaving || !createdWillReady) return
+
+        setIsSaving(true)
+
+        try {
+            const { result: hash, status: resetPlanStatus } = await executeWrite({
+                contract: "WillFactory",
+                functionName: "resetLastWill",
+                args: [],
+                caller: address,
+            })
+
+            if (!hash) {
+                if (resetPlanStatus && resetPlanStatus.includes("User denied the transaction.")) {
+                    return
+                }
+                toast.error(status || "Transaction failed")
+                return
+            }
+
+            const transactionReceipt = await waitForTransactionReceipt(wagmiConfig, { hash })
+
+            toast.success(`Inheritance plan successfully reset!`)
+        } catch (error) {
+            console.error("Error resetting plan:", error)
+            toast.error("Transaction failed. Please try again.")
+        } finally {
+            setIsSaving(false)
+        }
     }
 
     const handleSaveAndApprove = async () => {
@@ -392,6 +426,9 @@ export default function Home() {
                 ).toLocaleDateString()}`
             )
         } catch (error) {
+            if (error?.message?.includes("User rejected the request")) {
+                return
+            }
             console.error("Error saving plan:", error)
             toast.error("Transaction failed. Please try again.")
         } finally {
@@ -441,6 +478,7 @@ export default function Home() {
                         onHeirsChange={setHeirs}
                         onSaveAndApprove={handleSaveAndApprove}
                         onDueDateChange={handleDueDateChange}
+                        onPlanReset={handlePlanReset}
                         isSaving={isSaving}
                         status={status}
                     />

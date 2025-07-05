@@ -33,6 +33,7 @@ interface HeirsTableProps {
     onSaveAndApprove: () => void
     isSaving?: boolean
     onDueDateChange?: (date: string) => void
+    onPlanReset: () => void
     status?: string
 }
 
@@ -44,6 +45,7 @@ export default function HeirsTable({
     onSaveAndApprove,
     isSaving = false,
     onDueDateChange,
+    onPlanReset,
     status,
 }: HeirsTableProps) {
     const [showConfirmDialog, setShowConfirmDialog] = useState<string | null>(null)
@@ -350,6 +352,23 @@ export default function HeirsTable({
                         </TooltipContent>
                     </Tooltip>
                 </TooltipProvider>
+
+                {isDueDatePassed(dueDate) && (
+                    <Button
+                        onClick={onPlanReset}
+                        size="lg"
+                        className="w-full bg-red-500 hover:bg-red-700 text-white"
+                    >
+                        {isSaving ? (
+                            <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                Waiting for your approval...
+                            </>
+                        ) : (
+                            "Reset Inheritance Plan"
+                        )}
+                    </Button>
+                )}
 
                 {/* Confirmation Dialog */}
                 {showConfirmDialog && (
