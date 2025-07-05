@@ -1,71 +1,132 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
+import { usePrivy } from "@privy-io/react-auth"
+import { zeroAddress, isAddress, formatUnits } from "viem"
+// @ts-expect-error working fine
+import { useAccount, useWriteContract, useConfig } from "wagmi"
+import { readContract } from "@wagmi/core"
 import { Clock, Gift } from "lucide-react"
 import { toast } from "sonner"
 
 import HeirPlanCard from "@/components/inheritance/heir-plan-card"
+import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHelper"
+import { useERC20TokenData, getNativeTokenAmount } from "@/lib/web3/tokenHelper"
+import { getIsoDateFromTimestamp } from "@/lib/validators"
+import lastWillAbi from "@/abi/LastWill.json"
 
 interface InheritancePlan {
     id: string
     dueDate: string
     tokenAmounts: { [symbol: string]: number }
-    testatorAddress: string // Address of the person who created the will
+    testatorAddress: string
+    executed: boolean
 }
 
 export default function HeirPage() {
-    // Mock authentication state - replace with your actual auth logic
-    const authenticated = true
-    const address = "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b1"
+    const { user, ready, authenticated } = usePrivy()
+    const { address } = useAccount()
+    const wagmiConfig = useConfig()
+    const nativeSymbol = process.env.NEXT_PUBLIC_NATIVE_SYMBOL //@note use chainId to get native token symbol
 
     // State management
     const [inheritancePlans, setInheritancePlans] = useState<InheritancePlan[]>([])
     const [isLoading, setIsLoading] = useState(false)
 
-    // Mock inheritance plans data
-    const mockInheritancePlans: InheritancePlan[] = [
-        {
-            id: "will_1",
-            dueDate: "2026-05-31",
-            tokenAmounts: { ETH: 1.5, USDC: 617.28, LINK: 12.88 },
-            testatorAddress: "0x46f98920c5896eff11bb90d784d6d6001d74c073",
-        },
-        {
-            id: "will_2",
-            dueDate: "2027-02-28",
-            tokenAmounts: { ETH: 0.75, USDC: 100.0, LINK: 55.0 },
-            testatorAddress: "0x123d35Cc6634C0532925a3b8D4C9db96C4b4d456",
-        },
-    ]
+    //get all wills for the heir
+    const { data: heirWills } = useSmartContractRead({
+        contract: "WillFactory",
+        functionName: "getInheritedWills",
+        args: [],
+        caller: address,
+    })
 
-    // Load inheritance plans when wallet connects
-    useEffect(() => {
-        if (authenticated && address) {
-            loadInheritancePlans()
+    //create token - symbol map
+    const { tokenData, tokenAddresses } = useERC20TokenData()
+    const tokenSymbolMap = useMemo(() => {
+        if (!tokenData || tokenData.length === 0) return {}
+
+        const map: Record<string, string> = {}
+        for (let i = 0; i < tokenData.length; i += 4) {
+            const tokenAddress = tokenAddresses[i / 4]
+            const symbol = tokenData[i]
+            map[tokenAddress.toLowerCase()] = symbol
         }
-    }, [authenticated, address])
+        return map
+    }, [tokenData, tokenAddresses])
 
-    const loadInheritancePlans = async () => {
+    useEffect(() => {
+        if (!authenticated || !address || !heirWills || !Array.isArray(heirWills)) return
+        loadPlans()
+    }, [heirWills, tokenSymbolMap, address])
+
+    const loadPlans = async () => {
         setIsLoading(true)
 
-        try {
-            // Simulate API call delay
-            await new Promise((resolve) => setTimeout(resolve, 1500))
+        const newPlans: InheritancePlan[] = []
 
-            // Mock: Fetch inheritance plans where user is a beneficiary
-            setInheritancePlans(mockInheritancePlans)
+        for (let i = 0; i < heirWills.length; i++) {
+            const will = heirWills[i]
 
-            toast.success(
-                `Found ${mockInheritancePlans.length} inheritance plan${
-                    mockInheritancePlans.length !== 1 ? "s" : ""
-                } for your address`
-            )
-        } catch (error) {
-            console.error("Error loading inheritance plans:", error)
-            toast.error("Failed to load inheritance plans")
-        } finally {
-            setIsLoading(false)
+            if (!will || will === zeroAddress) continue
+
+            try {
+                const [dueDate, owner, heirDataRaw] = await Promise.all([
+                    readContract(wagmiConfig, {
+                        address: will,
+                        abi: lastWillAbi.abi,
+                        functionName: "dueDate",
+                    }),
+                    readContract(wagmiConfig, {
+                        address: will,
+                        abi: lastWillAbi.abi,
+                        functionName: "owner",
+                    }),
+                    readContract(wagmiConfig, {
+                        address: will,
+                        abi: lastWillAbi.abi,
+                        functionName: "getHeirByAddress",
+                        args: [address],
+                    }),
+                ])
+
+                const heirData = heirDataRaw[0]
+
+                if (!heirData || !dueDate || !owner) continue
+
+                const tokenAmounts: { [symbol: string]: number } = {}
+                const tokens: string[] = heirData.tokens
+                const amounts: bigint[] = heirData.amounts
+
+                tokens.forEach((tokenAddr, idx) => {
+                    const symbol = tokenSymbolMap[tokenAddr.toLowerCase()] ?? nativeSymbol
+                    const tokenIdx = tokenAddresses.findIndex(
+                        (addr) => addr.toLowerCase() === tokenAddr.toLowerCase()
+                    )
+                    const decimals = Number(tokenData?.[tokenIdx * 4 + 2] || 18) // "decimals" is third in group of 4
+                    const amount = parseFloat(formatUnits(amounts[idx], decimals))
+                    tokenAmounts[symbol] = amount
+                })
+
+                //console.log("Data: ", dueDate, owner, tokenAmounts)
+
+                newPlans.push({
+                    id: `will_${i + 1}`,
+                    dueDate: getIsoDateFromTimestamp(dueDate),
+                    tokenAmounts,
+                    testatorAddress: owner,
+                    executed: heirData.executed,
+                })
+            } catch (err) {
+                console.warn(`Failed to load data for will ${will}:`, err)
+            }
         }
+
+        setInheritancePlans(newPlans)
+        toast.success(
+            `Found ${newPlans.length} inheritance plan${newPlans.length !== 1 ? "s" : ""} for your address`
+        )
+        setIsLoading(false)
     }
 
     const handleExecutePlan = async (planId: string) => {

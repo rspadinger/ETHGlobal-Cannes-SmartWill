@@ -7,12 +7,14 @@ import { Badge } from "@/components/ui/badge"
 import { Calendar, Clock, Gift, AlertCircle } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { getIsoDateFromTimestamp } from "@/lib/validators"
 
 interface InheritancePlan {
     id: string
     dueDate: string
     tokenAmounts: { [symbol: string]: number }
     testatorAddress: string
+    executed: boolean
 }
 
 interface HeirPlanCardProps {
@@ -33,9 +35,14 @@ export default function HeirPlanCard({ plan, planNumber, onExecute }: HeirPlanCa
     }
 
     const isExecutable = () => {
+        if (!plan?.dueDate) return false
+
         const dueDate = new Date(plan.dueDate)
         const now = new Date()
-        return now >= dueDate
+
+        if (isNaN(dueDate.getTime())) return false
+
+        return now >= dueDate && !plan.executed
     }
 
     const getDaysUntilExecutable = () => {
@@ -82,8 +89,16 @@ export default function HeirPlanCard({ plan, planNumber, onExecute }: HeirPlanCa
                             {formatDate(plan.dueDate)}
                         </Badge>
                         {!executable && (
-                            <span className="text-xs text-muted-foreground">
-                                {daysUntil > 0 ? `${daysUntil} days remaining` : "Due today"}
+                            <span
+                                className={`text-xs ${
+                                    plan.executed ? "text-red-500" : "text-muted-foreground"
+                                }`}
+                            >
+                                {plan.executed
+                                    ? "The plan has already been executed."
+                                    : daysUntil > 0
+                                    ? `${daysUntil} days remaining`
+                                    : "Due today"}
                             </span>
                         )}
                     </div>
