@@ -5,7 +5,7 @@ import type React from "react"
 import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, Users, ExternalLink, AlertTriangle, Calendar, Info } from "lucide-react"
+import { Plus, Users, ExternalLink, AlertTriangle, Calendar, Info, CheckCircle2 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
@@ -33,6 +33,7 @@ interface HeirsTableProps {
     onSaveAndApprove: () => void
     isSaving?: boolean
     onDueDateChange?: (date: string) => void
+    status?: string
 }
 
 export default function HeirsTable({
@@ -43,6 +44,7 @@ export default function HeirsTable({
     onSaveAndApprove,
     isSaving = false,
     onDueDateChange,
+    status,
 }: HeirsTableProps) {
     const [showConfirmDialog, setShowConfirmDialog] = useState<string | null>(null)
     const [localDueDate, setLocalDueDate] = useState(dueDate)
@@ -117,8 +119,8 @@ export default function HeirsTable({
     }
 
     const isFormValid = useCallback(() => {
-        if (heirs.length === 0) return false
         if (!isValidFutureDate(localDueDate)) return false
+        if (heirs.length === 0) return true
 
         const hasValidHeir = heirs.some((heir) => {
             const hasValidAddress = /^0x[a-fA-F0-9]{40}$/.test(heir.address)
@@ -295,6 +297,18 @@ export default function HeirsTable({
                             {overAllocatedTokens.map((t) => t.symbol).join(", ")}
                         </AlertDescription>
                     </Alert>
+                )}
+
+                {/* Status Message */}
+                {status && (
+                    <div className="bg-muted/30 p-4 rounded-lg border border-border">
+                        <div className="flex items-start space-x-3">
+                            <Info className="h-5 w-5 text-cyan-500 mt-0.5" />
+                            <div>
+                                <h4 className="font-medium text-foreground">{status}</h4>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {/* Save and Approve Button - Always enabled for date changes */}

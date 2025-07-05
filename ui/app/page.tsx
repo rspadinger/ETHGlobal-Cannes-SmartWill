@@ -5,9 +5,10 @@ import type React from "react"
 import { useState, useEffect, useMemo } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
-import { useAccount, useBalance, useReadContracts, useConfig } from "wagmi"
+import { useAccount, useBalance, useReadContracts, useWriteContract, useConfig } from "wagmi"
+import { readContract } from "@wagmi/core"
 import { waitForTransactionReceipt } from "wagmi/actions"
-import { erc20Abi, zeroAddress, isAddress, formatUnits } from "viem"
+import { erc20Abi, zeroAddress, isAddress, formatUnits, parseUnits } from "viem"
 
 import { Coins, HandCoins } from "lucide-react"
 import { toast } from "sonner"
@@ -37,9 +38,14 @@ interface Heir {
 export default function Home() {
     const { user, ready, authenticated } = usePrivy()
     const { address } = useAccount()
-    const { data: nativeBalance, isLoading: loadingNativeBalance } = useBalance({ address })
+    const {
+        data: nativeBalance,
+        isLoading: loadingNativeBalance,
+        refetch: refetchNativeBalance,
+    } = useBalance({ address })
     const wagmiConfig = useConfig()
     const { executeWrite } = useSmartContractWrite()
+    const { writeContractAsync } = useWriteContract()
 
     // State management
     const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([])
@@ -51,6 +57,7 @@ export default function Home() {
     const [isCreatingPlan, setIsCreatingPlan] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [txHash, setTxHash] = useState<string | null>(null)
+    const [status, setStatus] = useState("")
 
     // get whitelisted token addresses => get balances & names
     const { data: whitelistedTokens } = useSmartContractRead({
@@ -89,7 +96,7 @@ export default function Home() {
     }, [address])
 
     // call useReadContracts with all ERC20 contracts
-    const { data: tokenData } = useReadContracts({
+    const { data: tokenData, refetch: refetchTokenData } = useReadContracts({
         allowFailure: false,
         contracts: ERC20Contracts,
     })
@@ -104,7 +111,7 @@ export default function Home() {
     const createdWillReady = !!createdWill && createdWill !== zeroAddress && isAddress(createdWill)
 
     // call dueDate on LastWill
-    const { data: dueDate } = useSmartContractRead({
+    const { data: dueDate, refetch: refetchDueDate } = useSmartContractRead({
         contract: "LastWill",
         functionName: "dueDate",
         args: [],
@@ -113,7 +120,7 @@ export default function Home() {
     })
 
     // call getHeirs on LastWill if createdWillReady => make sure this is called by the owner
-    const { data: heirsFromPlan } = useSmartContractRead({
+    const { data: heirsFromPlan, refetch: refetchHeirs } = useSmartContractRead({
         contract: "LastWill",
         functionName: "getHeirs",
         args: [],
@@ -161,11 +168,21 @@ export default function Home() {
             executed: boolean
         }[]
         heirsToDelete: string[]
+        tokenDetails: {
+            tokenAddress: string
+            symbol: string
+            amount: bigint
+            decimals: number
+        }[]
     } => {
-        if (!heirsFromPlan) return { heirsToAdd: [], heirsToDelete: [] }
+        if (!heirsFromPlan) return { heirsToAdd: [], heirsToDelete: [], tokenDetails: [] }
 
         const existingHeirAddresses = heirsFromPlan.map((h) => normalizeAddress(h.wallet))
         const newHeirAddresses = heirs.map((h) => normalizeAddress(h.address))
+        const tokenDetailsMap = new Map<
+            string,
+            { tokenAddress: string; amount: bigint; decimals: number; symbol: string }
+        >()
 
         const heirsToAdd = heirs
             .filter((h) => !existingHeirAddresses.includes(normalizeAddress(h.address)))
@@ -177,16 +194,26 @@ export default function Home() {
 
                 for (const symbol of tokenSymbols) {
                     const tokenMeta = tokenBalances.find((t) => t.symbol === symbol)
-
                     if (!tokenMeta) continue // skip unknown tokens
-
-                    tokens.push(tokenMeta.address)
 
                     const rawAmount = h.tokenAmounts[symbol] ?? 0
                     const decimals = tokenMeta.decimals ?? 18
                     const parsedAmount = BigInt(Math.floor(rawAmount * 10 ** decimals))
 
-                    amounts.push(parsedAmount)
+                    if (parsedAmount > 0) {
+                        tokens.push(tokenMeta.address)
+                        amounts.push(parsedAmount)
+
+                        const existing = tokenDetailsMap.get(tokenMeta.address)
+                        if (!existing) {
+                            tokenDetailsMap.set(tokenMeta.address, {
+                                tokenAddress: tokenMeta.address,
+                                amount: parsedAmount,
+                                decimals,
+                                symbol,
+                            })
+                        }
+                    }
                 }
 
                 return {
@@ -199,7 +226,19 @@ export default function Home() {
 
         const heirsToDelete = existingHeirAddresses.filter((addr) => !newHeirAddresses.includes(addr))
 
-        return { heirsToAdd, heirsToDelete }
+        return { heirsToAdd, heirsToDelete, tokenDetails: Array.from(tokenDetailsMap.values()) }
+    }
+
+    //helper function to get native token amount
+    function getNativeTokenAmount(heirs: { tokens: string[]; amounts: bigint[] }[]): bigint {
+        for (const heir of heirs) {
+            for (let i = 0; i < heir.tokens.length; i++) {
+                if (heir.tokens[i].toLowerCase() === zeroAddress) {
+                    return heir.amounts[i]
+                }
+            }
+        }
+        return 0n
     }
 
     // Load user data when wallet connects
@@ -278,6 +317,7 @@ export default function Home() {
         }
 
         // call createLastWill
+        const dueDateTimestamp = getTimestampFromIsoDate(formattedDueDate)
         const { result: hash, status } = await executeWrite({
             contract: "WillFactory",
             functionName: "createLastWill",
@@ -301,18 +341,6 @@ export default function Home() {
 
             setPlanDueDate(formattedDueDate)
             setHasPlan(true)
-
-            // Initialize with one empty heir
-            setHeirs([
-                {
-                    id: Date.now().toString(),
-                    address: "",
-                    tokenAmounts: tokenBalances.reduce((acc, token) => {
-                        acc[token.symbol] = 0
-                        return acc
-                    }, {} as { [symbol: string]: number }),
-                },
-            ])
 
             toast.success("Inheritance plan created successfully!")
             setTxHash(hash)
@@ -344,45 +372,71 @@ export default function Home() {
             return
         }
 
-        //console.log("heirsFromPlan: ", heirsFromPlan)
-        console.log("heirs: ", heirs)
-        const { heirsToAdd, heirsToDelete } = computeHeirDiff(heirsFromPlan, heirs)
-        console.log("heirsToAdd: ", heirsToAdd)
-        console.log("heirsToDelete: ", heirsToDelete)
-
-        return
+        const { heirsToAdd, heirsToDelete, tokenDetails } = computeHeirDiff(heirsFromPlan, heirs)
+        const ethAmount = getNativeTokenAmount(heirsToAdd)
+        const dueDateTimestamp = getTimestampFromIsoDate(planDueDate)
 
         setIsSaving(true)
 
         try {
+            setStatus("Checking allowance...")
+
+            for (let i = 0; i < tokenDetails.length; i++) {
+                const token = tokenDetails[i].tokenAddress
+                const symbol = tokenDetails[i].symbol
+                const amount = parseUnits(tokenDetails[i].amount.toString(), tokenDetails[i].decimals)
+
+                if (token === zeroAddress) continue
+
+                setStatus(`Checking allowance for ${symbol}...`)
+                const allowance = (await readContract(wagmiConfig, {
+                    address: token,
+                    abi: erc20Abi,
+                    functionName: "allowance",
+                    args: [address, createdWill],
+                })) as bigint
+
+                if (allowance < amount) {
+                    setStatus(`Approving ${symbol}...`)
+                    await writeContractAsync({
+                        address: token,
+                        abi: erc20Abi,
+                        functionName: "approve",
+                        args: [createdWill, amount],
+                    })
+                    setStatus(`Approved ${symbol}`)
+                } else {
+                    setStatus(`${symbol} already approved`)
+                }
+            }
+
+            setStatus("Updating inheritance plan...")
+
             // call modifyPlan
-            // const { result: hash, status } = await executeWrite({
-            //     contract: "LastWill",
-            //     functionName: "modifyPlan",
-            //     args: [],
-            //     value: 0,
-            //     overrideAddress: createdWillReady ? createdWill : undefined,
-            // })
-
-            // if (!hash) {
-            //     if (status && status.includes("User denied the transaction.")) {
-            //         return
-            //     }
-            //     toast.error(status || "Transaction failed")
-            //     return
-            // }
-
-            //@todo LW::updateDueDate => if date has changed
-            const changedTS = getTimestampFromIsoDate(planDueDate)
-            //console.log("Date change: ", dueDate, changedTS)
-
-            //@todo iterate all heirs => LW::addHeir (if new heir was added)
-            // Mock: Call smart contract createLastWill
-            console.log("Creating/updating will with:", {
-                dueDate: planDueDate,
-                heirs: heirs.map((h) => h.address),
-                tokenAmounts: heirs.map((h) => h.tokenAmounts),
+            const { result: hash, status: modifyPlanStatus } = await executeWrite({
+                contract: "LastWill",
+                functionName: "modifyPlan",
+                args: [dueDateTimestamp, heirsToAdd, heirsToDelete],
+                value: ethAmount,
+                overrideAddress: createdWillReady ? createdWill : undefined,
+                caller: address,
             })
+
+            if (!hash) {
+                if (modifyPlanStatus && modifyPlanStatus.includes("User denied the transaction.")) {
+                    return
+                }
+                toast.error(status || "Transaction failed")
+                return
+            }
+
+            const transactionReceipt = await waitForTransactionReceipt(wagmiConfig, { hash })
+            //console.log("transactionReceipt: ", transactionReceipt)
+
+            await refetchNativeBalance()
+            await refetchTokenData()
+            await refetchDueDate()
+            await refetchHeirs()
 
             toast.success(
                 `Inheritance plan successfully updated! Funds will be locked until ${new Date(
@@ -394,6 +448,7 @@ export default function Home() {
             toast.error("Transaction failed. Please try again.")
         } finally {
             setIsSaving(false)
+            setStatus("")
         }
     }
 
@@ -439,6 +494,7 @@ export default function Home() {
                         onSaveAndApprove={handleSaveAndApprove}
                         onDueDateChange={handleDueDateChange}
                         isSaving={isSaving}
+                        status={status}
                     />
                 </div>
             )}
