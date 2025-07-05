@@ -21,6 +21,7 @@ contract WillFactory is Ownable {
     address public registry;
     address payable public immutable escrow;
 
+    mapping(address => bool) public isValidWill;
     mapping(address => address) public creatorToWill;
     mapping(address => address[]) public heirToWills;
     mapping(address => TokenInfo) public tokenWhiteList;
@@ -35,6 +36,8 @@ contract WillFactory is Ownable {
     error Unauthorized();
     error InvalidDueDate();
     error AlreadyHasWill();
+    error InvalidWill();
+    error WillNotRegisteredForHeir();
 
     constructor(address _registry, address _escrow) Ownable(msg.sender) {
         lastWillImplementation = address(new LastWill(address(this), _escrow, _registry));
@@ -46,19 +49,46 @@ contract WillFactory is Ownable {
         // Check if dueDate is in the future
         if (dueDate <= block.timestamp) revert InvalidDueDate();
 
-        //@audit just for testing => uncomment
-        //if (creatorToWill[msg.sender] != address(0)) revert AlreadyHasWill();
+        if (creatorToWill[msg.sender] != address(0)) revert AlreadyHasWill();
 
         lastWill = Clones.clone(lastWillImplementation);
 
         // Register as authorized caller
         WillEscrow(escrow).registerWill(lastWill);
         creatorToWill[msg.sender] = lastWill;
+        isValidWill[lastWill] = true;
         WillRegistry(registry).registerWill(lastWill);
 
         LastWill(lastWill).initialize(msg.sender, dueDate);
 
         emit WillInitialized(lastWill, msg.sender, dueDate);
+    }
+
+    function addWillForHeir(address heir) external {
+        if (!isValidWill[msg.sender]) revert InvalidWill();
+        heirToWills[heir].push(msg.sender);
+    }
+
+    function removeWillFromHeir(address heir) external {
+        if (!isValidWill[msg.sender]) revert InvalidWill();
+        address[] storage wills = heirToWills[heir];
+        uint256 len = wills.length;
+
+        for (uint256 i = 0; i < len; i++) {
+            if (wills[i] == msg.sender) {
+                wills[i] = wills[len - 1];
+                wills.pop();
+                return;
+            }
+        }
+
+        revert WillNotRegisteredForHeir();
+    }
+
+    //@note allows will creator to reset expired will => only for testing =>
+    //add features that allows user to manage several wills
+    function resetLastWill() external {
+        creatorToWill[msg.sender] = address(0);
     }
 
     // Admin Functions

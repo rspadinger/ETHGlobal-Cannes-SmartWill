@@ -92,6 +92,7 @@ contract LastWill {
     }
 
     function updateDueDate(uint256 _dueDate) external onlyOwner {
+        if (block.timestamp > dueDate) revert DueDatePassed();
         if (_dueDate <= block.timestamp) revert InvalidDueDate();
 
         dueDate = _dueDate;
@@ -156,6 +157,8 @@ contract LastWill {
             }
         }
 
+        WillFactory(factory).addWillForHeir(wallet);
+
         heirs.push(Heir(wallet, tokens, amounts, false));
         emit HeirAdded(wallet, tokens, amounts);
     }
@@ -191,6 +194,9 @@ contract LastWill {
             // Remove the heir from the array
             heirs[index] = heirs[heirs.length - 1];
             heirs.pop();
+
+            WillFactory(factory).removeWillFromHeir(wallet);
+
             emit HeirRemoved(wallet);
         } else {
             revert HeirNotFound();
@@ -252,7 +258,7 @@ contract LastWill {
 
     // Getter Functions
 
-    function getHeirs() external view onlyOwner returns (Heir[] memory) {
+    function getHeirs() external view returns (Heir[] memory) {
         return heirs;
     }
 
