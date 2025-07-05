@@ -74,6 +74,10 @@ contract WillEscrow is Ownable {
         bool isOwner = msg.sender == balance.owner;
         bool isHeir = isHeirTransfer(will, to, amount, token);
 
+        if (isHeir) {
+            if (block.timestamp < LastWill(will).dueDate()) revert NotDueYet();
+        }
+
         //@audit only LastWill is allowed to call
         if (!isOwner && !isHeir) revert InvalidTransfer();
 
@@ -97,6 +101,10 @@ contract WillEscrow is Ownable {
         bool isOwner = msg.sender == tokenBalances[will][address(0)].owner;
         bool isHeir = isHeirTransfer(will, to, amount, address(0));
 
+        if (isHeir) {
+            if (block.timestamp < LastWill(will).dueDate()) revert NotDueYet();
+        }
+
         if (!isOwner && !isHeir) revert InvalidTransfer();
 
         // Update balance
@@ -117,24 +125,23 @@ contract WillEscrow is Ownable {
         // Get will contract
         LastWill willContract = LastWill(will);
 
-        // Check if will is due
-        if (block.timestamp < willContract.dueDate()) revert NotDueYet();
-
         // Get heir data
-        (LastWill.Heir memory heir, , ) = willContract.getHeirByAddress(to);
+        (LastWill.Heir memory heir, , , bool found) = willContract.getHeirByAddress(to);
 
-        if (heir.executed) revert AlreadyExecuted();
+        if (found) {
+            if (heir.executed) revert AlreadyExecuted();
 
-        // For native transfers (token == address(0)), check nativeAmounts
-        if (token == address(0)) {
-            uint256 nativeAmount = willContract.getNativeTokenAmount(to);
-            return nativeAmount == amount;
-        }
+            // For native transfers (token == address(0)), check nativeAmounts
+            if (token == address(0)) {
+                uint256 nativeAmount = willContract.getNativeTokenAmount(to);
+                return nativeAmount == amount;
+            }
 
-        // For ERC20 transfers, check the specific token amount
-        for (uint256 i = 0; i < heir.tokens.length; i++) {
-            if (heir.tokens[i] == token && heir.amounts[i] == amount) {
-                return true;
+            // For ERC20 transfers, check the specific token amount
+            for (uint256 i = 0; i < heir.tokens.length; i++) {
+                if (heir.tokens[i] == token && heir.amounts[i] == amount) {
+                    return true;
+                }
             }
         }
 

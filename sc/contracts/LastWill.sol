@@ -163,27 +163,36 @@ contract LastWill {
     function removeHeir(address wallet) external onlyOwner {
         if (block.timestamp > dueDate) revert DueDatePassed();
 
-        (Heir memory heirToRemove, uint256 index, ) = getHeirByAddress(wallet);
+        (Heir memory heirToRemove, uint256 index, , bool found) = getHeirByAddress(wallet);
 
-        // Return native tokens to owner
-        uint256 nativeAmount = getNativeTokenAmount(wallet);
-        if (nativeAmount > 0) {
-            escrow.transferETH(address(this), payable(owner), nativeAmount);
-            emit NativeTokensReturnedFromEscrow(nativeAmount, owner);
-        }
-
-        // Return ERC20 tokens to owner
-        for (uint256 i = 0; i < heirToRemove.tokens.length; i++) {
-            if (heirToRemove.amounts[i] > 0) {
-                escrow.transferERC20(address(this), heirToRemove.tokens[i], owner, heirToRemove.amounts[i]);
-                emit TokensReturnedFromEscrow(heirToRemove.tokens[i], heirToRemove.amounts[i], owner);
+        if (found) {
+            // Return native tokens to owner
+            uint256 nativeAmount = getNativeTokenAmount(wallet);
+            if (nativeAmount > 0) {
+                escrow.transferETH(address(this), payable(owner), nativeAmount);
+                emit NativeTokensReturnedFromEscrow(nativeAmount, owner);
             }
-        }
 
-        // Remove the heir from the array
-        heirs[index] = heirs[heirs.length - 1];
-        heirs.pop();
-        emit HeirRemoved(wallet);
+            // Return ERC20 tokens to owner
+            for (uint256 i = 0; i < heirToRemove.tokens.length; i++) {
+                if (heirToRemove.amounts[i] > 0) {
+                    escrow.transferERC20(
+                        address(this),
+                        heirToRemove.tokens[i],
+                        owner,
+                        heirToRemove.amounts[i]
+                    );
+                    emit TokensReturnedFromEscrow(heirToRemove.tokens[i], heirToRemove.amounts[i], owner);
+                }
+            }
+
+            // Remove the heir from the array
+            heirs[index] = heirs[heirs.length - 1];
+            heirs.pop();
+            emit HeirRemoved(wallet);
+        } else {
+            revert HeirNotFound();
+        }
     }
 
     //@todo add modifyHeir function
@@ -193,23 +202,28 @@ contract LastWill {
         //@todo pay service fee to protocol
 
         //get index because we need a storage heir
-        (, uint256 heirIndex, ) = getHeirByAddress(heirAddress);
-        Heir storage h = heirs[heirIndex];
+        (, uint256 heirIndex, , bool found) = getHeirByAddress(heirAddress);
 
-        if (h.executed) revert AlreadyExecuted();
-        if (block.timestamp < dueDate) revert NotDueYet();
+        if (found) {
+            Heir storage h = heirs[heirIndex];
 
-        h.executed = true;
+            if (h.executed) revert AlreadyExecuted();
+            if (block.timestamp < dueDate) revert NotDueYet();
 
-        for (uint j = 0; j < h.tokens.length; j++) {
-            address token = h.tokens[j];
-            uint256 amount = h.amounts[j];
+            h.executed = true;
 
-            if (token == address(0)) {
-                escrow.transferETH(address(this), payable(h.wallet), amount);
-            } else {
-                escrow.transferERC20(address(this), token, h.wallet, amount);
+            for (uint j = 0; j < h.tokens.length; j++) {
+                address token = h.tokens[j];
+                uint256 amount = h.amounts[j];
+
+                if (token == address(0)) {
+                    escrow.transferETH(address(this), payable(h.wallet), amount);
+                } else {
+                    escrow.transferERC20(address(this), token, h.wallet, amount);
+                }
             }
+        } else {
+            revert HeirNotFound();
         }
     }
 
@@ -229,25 +243,29 @@ contract LastWill {
     }
 
     function getNativeTokenAmount(address heir) public view returns (uint256) {
-        (Heir memory h, , ) = getHeirByAddress(heir);
+        (Heir memory h, , , bool found) = getHeirByAddress(heir);
 
-        for (uint256 i = 0; i < h.tokens.length; i++) {
-            if (h.tokens[i] == address(0)) {
-                return h.amounts[i];
+        if (found) {
+            for (uint256 i = 0; i < h.tokens.length; i++) {
+                if (h.tokens[i] == address(0)) {
+                    return h.amounts[i];
+                }
             }
         }
         return 0;
     }
 
     //@todo should maybe be restricted
-    function getHeirByAddress(address heir) public view returns (Heir memory, uint256, uint256) {
+    function getHeirByAddress(address heir) public view returns (Heir memory, uint256, uint256, bool) {
         for (uint256 i = 0; i < heirs.length; i++) {
             if (heirs[i].wallet == heir) {
-                return (heirs[i], i, dueDate);
+                return (heirs[i], i, dueDate, true);
             }
         }
 
-        revert HeirNotFound();
+        //nothing  found
+        Heir memory emptyHeir;
+        return (emptyHeir, 0, dueDate, false);
     }
 
     function getTotalTokenAmounts()

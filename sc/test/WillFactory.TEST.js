@@ -24,8 +24,9 @@ describe("WillFactory Contract", function () {
         const WillFactory = await ethers.getContractFactory("WillFactory")
         const willFactory = await WillFactory.deploy(willRegistry.target, willEscrow.target)
 
-        // Set factory in escrow
+        // Set factory in escrow and registry
         await willEscrow.setFactory(willFactory.target)
+        await willRegistry.setFactory(willFactory.target)
 
         // Mint tokens to users for testing
         await mockToken1.mint(user1.address, ethers.parseEther("1000"))
