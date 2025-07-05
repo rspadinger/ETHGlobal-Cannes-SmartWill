@@ -4,19 +4,21 @@ import { useState, useEffect, useMemo } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 import { zeroAddress, isAddress, formatUnits } from "viem"
 // @ts-expect-error working fine
-import { useAccount, useWriteContract, useConfig } from "wagmi"
+import { useAccount, useConfig } from "wagmi"
+import { waitForTransactionReceipt } from "wagmi/actions"
 import { readContract } from "@wagmi/core"
 import { Clock, Gift } from "lucide-react"
 import { toast } from "sonner"
 
 import HeirPlanCard from "@/components/inheritance/heir-plan-card"
 import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHelper"
-import { useERC20TokenData, getNativeTokenAmount } from "@/lib/web3/tokenHelper"
+import { useERC20TokenData } from "@/lib/web3/tokenHelper"
 import { getIsoDateFromTimestamp } from "@/lib/validators"
 import lastWillAbi from "@/abi/LastWill.json"
 
 interface InheritancePlan {
     id: string
+    adress: string
     dueDate: string
     tokenAmounts: { [symbol: string]: number }
     testatorAddress: string
@@ -27,11 +29,14 @@ export default function HeirPage() {
     const { user, ready, authenticated } = usePrivy()
     const { address } = useAccount()
     const wagmiConfig = useConfig()
+    const { executeWrite } = useSmartContractWrite()
+
     const nativeSymbol = process.env.NEXT_PUBLIC_NATIVE_SYMBOL //@note use chainId to get native token symbol
 
     // State management
     const [inheritancePlans, setInheritancePlans] = useState<InheritancePlan[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    const [isExecuting, setIsExecuting] = useState(false)
 
     //get all wills for the heir
     const { data: heirWills } = useSmartContractRead({
@@ -108,14 +113,18 @@ export default function HeirPage() {
                     tokenAmounts[symbol] = amount
                 })
 
-                //console.log("Data: ", dueDate, owner, tokenAmounts)
-
                 newPlans.push({
                     id: `will_${i + 1}`,
+                    address: will,
                     dueDate: getIsoDateFromTimestamp(dueDate),
                     tokenAmounts,
                     testatorAddress: owner,
                     executed: heirData.executed,
+                })
+
+                newPlans.sort((a, b) => {
+                    // false < true => executed: false will come first
+                    return Number(a.executed) - Number(b.executed)
                 })
             } catch (err) {
                 console.warn(`Failed to load data for will ${will}:`, err)
@@ -123,29 +132,47 @@ export default function HeirPage() {
         }
 
         setInheritancePlans(newPlans)
-        toast.success(
-            `Found ${newPlans.length} inheritance plan${newPlans.length !== 1 ? "s" : ""} for your address`
-        )
+        //toast.success(`Found ${newPlans.length} inheritance plan${newPlans.length !== 1 ? "s" : ""} for your address`);
         setIsLoading(false)
     }
 
-    const handleExecutePlan = async (planId: string) => {
-        try {
-            // Simulate contract interaction
-            await new Promise((resolve) => setTimeout(resolve, 2000))
+    const handleExecutePlan = async (planAddress: string) => {
+        console.log("planAddress: ", planAddress)
+        if (!address || isExecuting || !planAddress) return
 
-            // Mock: Call smart contract to execute inheritance
-            console.log("Executing inheritance plan:", planId)
+        setIsExecuting(true)
+
+        try {
+            // call executeLastWill
+            const { result: hash, status: executeLastWillStatus } = await executeWrite({
+                contract: "LastWill",
+                functionName: "executeLastWill",
+                args: [address],
+                value: 0,
+                overrideAddress: planAddress,
+            })
+
+            if (!hash) {
+                if (executeLastWillStatus && executeLastWillStatus.includes("User denied the transaction.")) {
+                    return
+                }
+                toast.error(executeLastWillStatus || "Transaction failed")
+                return
+            }
+
+            const transactionReceipt = await waitForTransactionReceipt(wagmiConfig, { hash })
+            //console.log("transactionReceipt: ", transactionReceipt)
+
+            await loadPlans()
 
             toast.success(
                 "Inheritance plan executed successfully! Tokens have been transferred to your wallet."
             )
-
-            // Remove executed plan from the list
-            setInheritancePlans((plans) => plans.filter((plan) => plan.id !== planId))
         } catch (error) {
             console.error("Error executing plan:", error)
             toast.error("Failed to execute inheritance plan. Please try again.")
+        } finally {
+            setIsExecuting(false)
         }
     }
 
@@ -212,14 +239,14 @@ export default function HeirPage() {
                 </p>
             </div>
 
-            {/* Inheritance  Plans */}
+            {/* Inheritance Plans */}
             <div className="grid gap-6 max-w-4xl mx-auto">
                 {inheritancePlans.map((plan, index) => (
                     <HeirPlanCard
                         key={plan.id}
                         plan={plan}
                         planNumber={inheritancePlans.length > 1 ? index + 1 : undefined}
-                        onExecute={() => handleExecutePlan(plan.id)}
+                        onExecute={() => handleExecutePlan(plan.address)}
                     />
                 ))}
             </div>
