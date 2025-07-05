@@ -18,9 +18,8 @@ contract WillFactory is Ownable {
     }
 
     address public immutable lastWillImplementation;
-    address public immutable registry;
-
-    address payable public escrow;
+    address public registry;
+    address payable public immutable escrow;
 
     mapping(address => address) public creatorToWill;
     mapping(address => address[]) public heirToWills;
@@ -41,9 +40,10 @@ contract WillFactory is Ownable {
         _;
     }
 
-    constructor(address _registry) Ownable(msg.sender) {
-        lastWillImplementation = address(new LastWill(address(this), address(0), _registry));
+    constructor(address _registry, address _escrow) Ownable(msg.sender) {
+        lastWillImplementation = address(new LastWill(address(this), _escrow, _registry));
         registry = _registry;
+        escrow = payable(_escrow);
     }
 
     function createLastWill(uint256 dueDate) external returns (address lastWill) {
@@ -64,10 +64,6 @@ contract WillFactory is Ownable {
     }
 
     // Admin Functions
-
-    function setEscrow(address _escrow) external onlyOwner {
-        escrow = payable(_escrow);
-    }
 
     function addTokenToWhiteList(address token) external onlyOwner {
         if (tokenWhiteList[token].allowed) revert TokenAlreadyWhitelisted();

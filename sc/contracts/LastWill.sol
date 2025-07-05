@@ -18,8 +18,8 @@ contract LastWill {
     }
 
     address public immutable factory;
-    WillEscrow public immutable escrow;
     WillRegistry public immutable registry;
+    WillEscrow public immutable escrow;
 
     bool private initialized;
     address public owner;
@@ -77,8 +77,8 @@ contract LastWill {
 
     constructor(address _factory, address _escrow, address _registry) {
         factory = _factory;
-        escrow = WillEscrow(payable(_escrow));
         registry = WillRegistry(_registry);
+        escrow = WillEscrow(payable(_escrow));
     }
 
     function initialize(address _owner, uint256 _dueDate) external onlyFactory {

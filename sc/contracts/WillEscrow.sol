@@ -7,7 +7,7 @@ import "./LastWill.sol";
 
 import "hardhat/console.sol";
 
-contract WillEscrow {
+contract WillEscrow is Ownable {
     struct TokenBalance {
         uint256 amount;
         address owner; //creator of the will
@@ -44,7 +44,9 @@ contract WillEscrow {
         _;
     }
 
-    function setFactory(address _factory) external {
+    constructor() Ownable(msg.sender) {}
+
+    function setFactory(address _factory) external onlyOwner {
         factory = _factory;
         authorizedCallers[factory] = true;
     }
