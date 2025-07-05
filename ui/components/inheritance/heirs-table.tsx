@@ -22,6 +22,7 @@ interface Heir {
     id: string
     address: string
     tokenAmounts: { [symbol: string]: number }
+    readonly?: boolean
 }
 
 interface HeirsTableProps {
@@ -30,7 +31,6 @@ interface HeirsTableProps {
     heirs: Heir[]
     onHeirsChange: (heirs: Heir[]) => void
     onSaveAndApprove: () => void
-    isReadOnly?: boolean
     isSaving?: boolean
     onDueDateChange?: (date: string) => void
 }
@@ -41,13 +41,16 @@ export default function HeirsTable({
     heirs,
     onHeirsChange,
     onSaveAndApprove,
-    isReadOnly = false,
     isSaving = false,
     onDueDateChange,
 }: HeirsTableProps) {
     const [showConfirmDialog, setShowConfirmDialog] = useState<string | null>(null)
     const [localDueDate, setLocalDueDate] = useState(dueDate)
     const [dateError, setDateError] = useState("")
+
+    function hasReadOnlyHeirs(heirs: Heir[]): boolean {
+        return heirs.some((heir) => heir.readonly !== false)
+    }
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newDate = e.target.value
@@ -72,6 +75,7 @@ export default function HeirsTable({
                 acc[token.symbol] = 0
                 return acc
             }, {} as { [symbol: string]: number }),
+            readonly: false,
         }
         onHeirsChange([...heirs, newHeir])
     }
@@ -130,7 +134,11 @@ export default function HeirsTable({
             return totalAllocated <= token.balance
         })
 
-        return hasValidHeir && noOverAllocation
+        const uniqueAddresses = new Set(heirs.map((heir) => heir.address.toLowerCase()))
+        const hasDuplicateAddresses = uniqueAddresses.size !== heirs.length
+        if (hasDuplicateAddresses) return false
+
+        return hasValidHeir && noOverAllocation && !hasDuplicateAddresses
     }, [heirs, localDueDate, tokenBalances])
 
     const getOverAllocatedTokens = () => {
@@ -234,8 +242,8 @@ export default function HeirsTable({
                                         removeHeir(heir.id)
                                     }
                                 }}
-                                canRemove={heirs.length > 1 || isReadOnly}
-                                isReadOnly={isReadOnly}
+                                canRemove={true}
+                                isReadOnly={heir.readonly ?? true}
                             />
                         ))
                     )}
@@ -254,7 +262,7 @@ export default function HeirsTable({
                 )}
 
                 {/* Distribute Equally Button */}
-                {heirs.length > 0 && !isReadOnly && (
+                {heirs.length > 0 && !hasReadOnlyHeirs(heirs) && (
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>

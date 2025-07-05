@@ -50,7 +50,6 @@ export default function Home() {
     const [heirs, setHeirs] = useState<Heir[]>([])
     const [isCreatingPlan, setIsCreatingPlan] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
-    const [isPlanReadOnly, setIsPlanReadOnly] = useState(false)
     const [txHash, setTxHash] = useState<string | null>(null)
 
     // get whitelisted token addresses => get balances & names
@@ -125,6 +124,7 @@ export default function Home() {
 
     //helper function to map heirs from contract to frontend heir structure
     const transformHeirs = (heirsFromPlan, tokenBalances) => {
+        if (!heirsFromPlan || heirsFromPlan.length === 0) return []
         const mappedHeirs = heirsFromPlan.map((heir) => {
             const tokenAmounts: Record<string, number> = {}
 
@@ -145,6 +145,61 @@ export default function Home() {
         })
 
         return mappedHeirs
+    }
+
+    //helper function to generate arrays for heirs to add and heirs to delete
+    const normalizeAddress = (addr: string) => addr.toLowerCase()
+
+    const computeHeirDiff = (
+        heirsFromPlan,
+        heirs
+    ): {
+        heirsToAdd: {
+            wallet: string
+            tokens: string[]
+            amounts: bigint[]
+            executed: boolean
+        }[]
+        heirsToDelete: string[]
+    } => {
+        if (!heirsFromPlan) return { heirsToAdd: [], heirsToDelete: [] }
+
+        const existingHeirAddresses = heirsFromPlan.map((h) => normalizeAddress(h.wallet))
+        const newHeirAddresses = heirs.map((h) => normalizeAddress(h.address))
+
+        const heirsToAdd = heirs
+            .filter((h) => !existingHeirAddresses.includes(normalizeAddress(h.address)))
+            .map((h) => {
+                const tokenSymbols = Object.keys(h.tokenAmounts)
+
+                const tokens: string[] = []
+                const amounts: bigint[] = []
+
+                for (const symbol of tokenSymbols) {
+                    const tokenMeta = tokenBalances.find((t) => t.symbol === symbol)
+
+                    if (!tokenMeta) continue // skip unknown tokens
+
+                    tokens.push(tokenMeta.address)
+
+                    const rawAmount = h.tokenAmounts[symbol] ?? 0
+                    const decimals = tokenMeta.decimals ?? 18
+                    const parsedAmount = BigInt(Math.floor(rawAmount * 10 ** decimals))
+
+                    amounts.push(parsedAmount)
+                }
+
+                return {
+                    wallet: h.address,
+                    tokens,
+                    amounts,
+                    executed: false,
+                }
+            })
+
+        const heirsToDelete = existingHeirAddresses.filter((addr) => !newHeirAddresses.includes(addr))
+
+        return { heirsToAdd, heirsToDelete }
     }
 
     // Load user data when wallet connects
@@ -205,8 +260,6 @@ export default function Home() {
 
                 const transformedHeirs = transformHeirs(heirsFromPlan, tokenBalances)
                 setHeirs(transformedHeirs)
-
-                setIsPlanReadOnly(true)
             }
         } catch (error) {
             console.error("Error loading user data:", error)
@@ -284,16 +337,40 @@ export default function Home() {
     }
 
     const handleSaveAndApprove = async () => {
+        if (!address || isSaving) return
+
         if (!isValidFutureDate(planDueDate)) {
             alert("Please select a date at least 1 day in the future.")
             return
         }
 
+        //console.log("heirsFromPlan: ", heirsFromPlan)
+        console.log("heirs: ", heirs)
+        const { heirsToAdd, heirsToDelete } = computeHeirDiff(heirsFromPlan, heirs)
+        console.log("heirsToAdd: ", heirsToAdd)
+        console.log("heirsToDelete: ", heirsToDelete)
+
+        return
+
         setIsSaving(true)
 
         try {
-            // Simulate approval process
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            // call modifyPlan
+            // const { result: hash, status } = await executeWrite({
+            //     contract: "LastWill",
+            //     functionName: "modifyPlan",
+            //     args: [],
+            //     value: 0,
+            //     overrideAddress: createdWillReady ? createdWill : undefined,
+            // })
+
+            // if (!hash) {
+            //     if (status && status.includes("User denied the transaction.")) {
+            //         return
+            //     }
+            //     toast.error(status || "Transaction failed")
+            //     return
+            // }
 
             //@todo LW::updateDueDate => if date has changed
             const changedTS = getTimestampFromIsoDate(planDueDate)
@@ -307,9 +384,8 @@ export default function Home() {
                 tokenAmounts: heirs.map((h) => h.tokenAmounts),
             })
 
-            setIsPlanReadOnly(true)
             toast.success(
-                `Inheritance plan successfully created! Funds will be locked until ${new Date(
+                `Inheritance plan successfully updated! Funds will be locked until ${new Date(
                     planDueDate
                 ).toLocaleDateString()}`
             )
@@ -362,7 +438,6 @@ export default function Home() {
                         onHeirsChange={setHeirs}
                         onSaveAndApprove={handleSaveAndApprove}
                         onDueDateChange={handleDueDateChange}
-                        isReadOnly={isPlanReadOnly}
                         isSaving={isSaving}
                     />
                 </div>
