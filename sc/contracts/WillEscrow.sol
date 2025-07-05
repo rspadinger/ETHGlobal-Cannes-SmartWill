@@ -58,13 +58,12 @@ contract WillEscrow is Ownable {
 
     //@todo when transferring tokens to heirs, deduct a small protocol fee
 
-    //@audit can only be called by LastWill contract
     function transferERC20(
         address will,
         address token,
         address to,
         uint256 amount
-    ) external onlyAuthorized onlyRegisteredWill {
+    ) external onlyRegisteredWill {
         TokenBalance storage balance = tokenBalances[will][token];
 
         // Verify the transfer is valid
@@ -78,7 +77,6 @@ contract WillEscrow is Ownable {
             if (block.timestamp < LastWill(will).dueDate()) revert NotDueYet();
         }
 
-        //@audit only LastWill is allowed to call
         if (!isOwner && !isHeir) revert InvalidTransfer();
 
         // Update balance
@@ -129,8 +127,6 @@ contract WillEscrow is Ownable {
         (LastWill.Heir memory heir, , , bool found) = willContract.getHeirByAddress(to);
 
         if (found) {
-            if (heir.executed) revert AlreadyExecuted();
-
             // For native transfers (token == address(0)), check nativeAmounts
             if (token == address(0)) {
                 uint256 nativeAmount = willContract.getNativeTokenAmount(to);

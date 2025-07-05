@@ -199,8 +199,6 @@ contract LastWill {
 
     //execute lastWill for specific heir
     function executeLastWill(address heirAddress) external {
-        //@todo pay service fee to protocol
-
         //get index because we need a storage heir
         (, uint256 heirIndex, , bool found) = getHeirByAddress(heirAddress);
 
@@ -255,7 +253,7 @@ contract LastWill {
         return 0;
     }
 
-    //@todo should maybe be restricted
+    //@todo should maybe be  restricted
     function getHeirByAddress(address heir) public view returns (Heir memory, uint256, uint256, bool) {
         for (uint256 i = 0; i < heirs.length; i++) {
             if (heirs[i].wallet == heir) {
@@ -263,7 +261,7 @@ contract LastWill {
             }
         }
 
-        //nothing  found
+        //nothing found
         Heir memory emptyHeir;
         return (emptyHeir, 0, dueDate, false);
     }

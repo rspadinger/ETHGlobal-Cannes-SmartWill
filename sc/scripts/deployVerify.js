@@ -53,4 +53,4 @@ main().catch((error) => {
     process.exitCode = 1
 })
 
-//npx hardhat run scripts/deployVerify.js
+//npx hardhat run scripts/deployVerify.js --network sepolia

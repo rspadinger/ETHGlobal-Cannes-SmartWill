@@ -24,8 +24,9 @@ describe("LastWill Contract", function () {
         const WillFactory = await ethers.getContractFactory("WillFactory")
         const willFactory = await WillFactory.deploy(willRegistry.target, willEscrow.target)
 
-        // Set factory in escrow
+        // Set factory in escrow and registry
         await willEscrow.setFactory(willFactory.target)
+        await willRegistry.setFactory(willFactory.target)
 
         // Add tokens to whitelist
         await willFactory.addTokenToWhiteList(mockToken1.target)
@@ -142,7 +143,7 @@ describe("LastWill Contract", function () {
             ).to.be.revertedWithCustomError(lastWill, "HeirAlreadyExists")
         })
 
-        it("Should allow owner to remove heir ", async function () {
+        it("Should allow owner to remove heir", async function () {
             const { lastWill, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
             const tokens = [mockToken1.target]
             const amounts = [ethers.parseEther("100")]
@@ -170,6 +171,89 @@ describe("LastWill Contract", function () {
                 lastWill,
                 "NotOwner"
             )
+        })
+    })
+
+    describe("Will Execution", function () {
+        it("Should allow heir to execute will after due date", async function () {
+            const { lastWill, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
+            const tokens = [mockToken1.target]
+            const amounts = [ethers.parseEther("100")]
+
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            // Move time forward past due date
+            await time.increase(86401) // 1 day + 1 second
+
+            await expect(lastWill.connect(user2).executeLastWill(user2.address)).to.not.be.reverted
+
+            const [heir] = await lastWill.getHeirByAddress(user2.address)
+            expect(heir.executed).to.be.true
+        })
+
+        it("Should not allow execution before due date", async function () {
+            const { lastWill, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
+            const tokens = [mockToken1.target]
+            const amounts = [ethers.parseEther("100")]
+
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            await expect(
+                lastWill.connect(user2).executeLastWill(user2.address)
+            ).to.be.revertedWithCustomError(lastWill, "NotDueYet")
+        })
+
+        it("Should not allow double execution", async function () {
+            const { lastWill, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
+            const tokens = [mockToken1.target]
+            const amounts = [ethers.parseEther("100")]
+
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            // Move time forward past due date
+            await time.increase(86401)
+
+            await lastWill.connect(user2).executeLastWill(user2.address)
+            await expect(
+                lastWill.connect(user2).executeLastWill(user2.address)
+            ).to.be.revertedWithCustomError(lastWill, "AlreadyExecuted")
+        })
+    })
+
+    describe.only("Getter Functions", function () {
+        it("Should return correct heir information", async function () {
+            const { lastWill, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
+            const tokens = [mockToken1.target]
+            const amounts = [ethers.parseEther("100")]
+
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            const [heir, index, dueDate] = await lastWill.getHeirByAddress(user2.address)
+            expect(heir.wallet).to.equal(user2.address)
+            expect(heir.tokens[0]).to.equal(mockToken1.target)
+            expect(heir.amounts[0]).to.equal(ethers.parseEther("100"))
+            expect(heir.executed).to.be.false
+            expect(index).to.equal(0)
+            expect(dueDate).to.equal(await lastWill.dueDate())
+        })
+
+        it("Should return correct total token amounts ", async function () {
+            const { lastWill, user1, user2, mockToken1, mockToken2 } = await loadFixture(
+                deployContractFixture
+            )
+            const tokens = [mockToken1.target, mockToken2.target]
+            const amounts = [ethers.parseEther("100"), ethers.parseUnits("100", 6)]
+
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            const [uniqueTokens, tokenAmounts, totalNativeAmount] = await lastWill
+                .connect(user1)
+                .getTotalTokenAmounts()
+            expect(uniqueTokens[0]).to.equal(mockToken1.target)
+            expect(uniqueTokens[1]).to.equal(mockToken2.target)
+            expect(tokenAmounts[0]).to.equal(ethers.parseEther("100"))
+            expect(tokenAmounts[1]).to.equal(ethers.parseUnits("100", 6))
+            expect(totalNativeAmount).to.equal(0)
         })
     })
 })
