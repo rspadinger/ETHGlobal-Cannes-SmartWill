@@ -24,8 +24,9 @@ describe("WillEscrow Contract", function () {
         const WillFactory = await ethers.getContractFactory("WillFactory")
         const willFactory = await WillFactory.deploy(willRegistry.target, willEscrow.target)
 
-        // Set factory in escrow
+        // Set factory in escrow and registry
         await willEscrow.setFactory(willFactory.target)
+        await willRegistry.setFactory(willFactory.target)
 
         // Add tokens to whitelist
         await willFactory.addTokenToWhiteList(mockToken1.target)
@@ -77,23 +78,6 @@ describe("WillEscrow Contract", function () {
         })
     })
 
-    describe("Authorization Management", function () {
-        it("Should allow factory to authorize callers", async function () {
-            const { lastWill, willEscrow, willFactory, user1 } = await loadFixture(deployContractFixture)
-
-            expect(await willEscrow.authorizedCallers(lastWill.target)).to.be.true
-        })
-
-        it("Should not allow non-factory to authorize callers", async function () {
-            const { willEscrow, user1, user2 } = await loadFixture(deployContractFixture)
-
-            await expect(willEscrow.connect(user1).authorize(user2.address)).to.be.revertedWithCustomError(
-                willEscrow,
-                "UnauthorizedCaller"
-            )
-        })
-    })
-
     describe("Will Registration", function () {
         it("Should allow authorized caller to register will", async function () {
             const { willEscrow, willFactory, lastWill } = await loadFixture(deployContractFixture)
@@ -106,7 +90,7 @@ describe("WillEscrow Contract", function () {
 
             await expect(willEscrow.connect(user1).registerWill(user1.address)).to.be.revertedWithCustomError(
                 willEscrow,
-                "UnauthorizedCaller"
+                "NotFactory"
             )
         })
     })
@@ -150,6 +134,95 @@ describe("WillEscrow Contract", function () {
             await expect(
                 willEscrow.connect(user1).registerDeposit(user1.address, mockToken1.target, 100)
             ).to.be.revertedWithCustomError(willEscrow, "WillNotRegistered")
+        })
+    })
+
+    describe("Token Transfers", function () {
+        it("Should allow owner to transfer ERC20 tokens", async function () {
+            const { willEscrow, lastWill, mockToken1, user1, user2 } = await loadFixture(
+                deployContractFixture
+            )
+            const amount = ethers.parseEther("100")
+
+            // Add heir with ERC20 tokens
+            const tokens = [mockToken1.target]
+            const amounts = [amount]
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            // Verify token balance in WillEscrow
+            const balance = await willEscrow.tokenBalances(lastWill.target, mockToken1.target)
+            expect(balance.amount).to.equal(amount)
+            expect(balance.owner).to.equal(lastWill.target)
+
+            // Verify token was transferred from user1 to escrow
+            expect(await mockToken1.balanceOf(willEscrow.target)).to.equal(amount)
+            expect(await mockToken1.balanceOf(user1.address)).to.equal(ethers.parseEther("900")) // 1000 - 100
+        })
+
+        it("Should allow owner to transfer ETH", async function () {
+            const { willEscrow, lastWill, user1, user2 } = await loadFixture(deployContractFixture)
+            const amount = ethers.parseEther("1")
+
+            // Add heir with ETH
+            const tokens = [ethers.ZeroAddress]
+            const amounts = [amount]
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts, { value: amount })
+
+            // Verify ETH balance in WillEscrow
+            const balance = await willEscrow.tokenBalances(lastWill.target, ethers.ZeroAddress)
+            expect(balance.amount).to.equal(amount)
+            expect(balance.owner).to.equal(lastWill.target)
+            expect(await willEscrow.nativeBalances(lastWill.target)).to.equal(amount)
+
+            // Verify ETH was transferred to escrow
+            expect(await ethers.provider.getBalance(willEscrow.target)).to.equal(amount)
+        })
+
+        it("Should not allow transfer of unregistered will", async function () {
+            const { willEscrow, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
+
+            await expect(
+                willEscrow.connect(user1).transferERC20(user1.address, mockToken1.target, user2.address, 100)
+            ).to.be.revertedWithCustomError(willEscrow, "WillNotRegistered")
+        })
+    })
+
+    describe("Heir Transfers", function () {
+        it("Should allow heir to receive tokens after due date", async function () {
+            const { willEscrow, lastWill, mockToken1, user1, user2 } = await loadFixture(
+                deployContractFixture
+            )
+            const amount = ethers.parseEther("100")
+
+            const tokens = [mockToken1.target]
+            const amounts = [ethers.parseEther("100")]
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            // Move time forward past due date
+            await time.increase(86401) // 1 day + 1 second
+
+            // Execute will
+            await lastWill.connect(user2).executeLastWill(user2.address)
+
+            expect(await mockToken1.balanceOf(user2.address)).to.equal(amount)
+            const balance = await willEscrow.tokenBalances(lastWill.target, mockToken1.target)
+            expect(balance.amount).to.equal(0)
+        })
+
+        it("Should not allow heir to receive tokens before due date", async function () {
+            const { willEscrow, lastWill, mockToken1, user1, user2 } = await loadFixture(
+                deployContractFixture
+            )
+            const amount = ethers.parseEther("100")
+
+            const tokens = [mockToken1.target]
+            const amounts = [ethers.parseEther("100")]
+            await lastWill.connect(user1).addHeir(user2.address, tokens, amounts)
+
+            // Try to execute will before due date
+            await expect(
+                lastWill.connect(user2).executeLastWill(user2.address)
+            ).to.be.revertedWithCustomError(lastWill, "NotDueYet")
         })
     })
 })
