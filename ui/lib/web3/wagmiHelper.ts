@@ -5,24 +5,29 @@ import { useChainId, useSwitchChain, useWriteContract, useReadContract } from "w
 import { readContract } from "@wagmi/core"
 import { wagmiConfig } from "./privyProviders"
 
-import Contr1ABI from "@/abi/Contr1.json"
-import Contr2ABI from "@/abi/Contr2.json"
+import WillFactoryABI from "@/abi/WillFactory.json"
+import WillRegistryABI from "@/abi/WillRegistry.json"
+import WillEscrowABI from "@/abi/WillEscrow.json"
+import LastWillABI from "@/abi/LastWill.json"
 
 import { parseEther } from "viem"
 
-const CONTR1_ADDRESS = process.env.NEXT_PUBLIC_CONTR1_ADDRESS as `0x${string}`
-const CONTR2_ADDRESS = process.env.NEXT_PUBLIC_CONTR2_ADDRESS as `0x${string}`
+const willFactoryAddress = process.env.NEXT_PUBLIC_WILLFACTORY_ADDRESS as `0x${string}`
+const willRegistryAddress = process.env.NEXT_PUBLIC_WILLREGISTRY_ADDRESS as `0x${string}`
+const willEscrowAddress = process.env.NEXT_PUBLIC_WILLESCROW_ADDRESS as `0x${string}`
 
 const TARGET_CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAINID)
 
-export type ContractType = "contr1" | "contr2"
+export type ContractType = "WillFactory" | "WillEscrow" | "WillRegistry" | "LastWill"
 
 const getContractAddress = (type: ContractType): `0x${string}` => {
     switch (type) {
-        case "contr1":
-            return CONTR1_ADDRESS
-        case "contr2":
-            return CONTR2_ADDRESS
+        case "WillFactory":
+            return willFactoryAddress
+        case "WillEscrow":
+            return willEscrowAddress
+        case "WillRegistry":
+            return willRegistryAddress
         default:
             throw new Error("Unknown contract type")
     }
@@ -30,10 +35,14 @@ const getContractAddress = (type: ContractType): `0x${string}` => {
 
 const getContractABI = (type: ContractType) => {
     switch (type) {
-        case "contr1":
-            return Contr1ABI.abi
-        case "contr2":
-            return Contr2ABI.abi
+        case "WillFactory":
+            return WillFactoryABI.abi
+        case "WillEscrow":
+            return WillEscrowABI.abi
+        case "WillRegistry":
+            return WillRegistryABI.abi
+        case "LastWill":
+            return LastWillABI.abi
         default:
             throw new Error("Unknown contract type")
     }
@@ -44,29 +53,32 @@ export const useSmartContractRead = ({
     functionName,
     args = [],
     enabled = true,
+    overrideAddress,
 }: {
     contract: ContractType
     functionName: string
     args?: readonly unknown[]
     enabled?: boolean
+    overrideAddress?: `0x${string}`
 }) => {
     const chainId = useChainId()
+    const address = overrideAddress ?? getContractAddress(contract)
 
     return useReadContract({
-        address: getContractAddress(contract),
+        address,
         abi: getContractABI(contract),
         functionName,
         args,
         query: {
             enabled: enabled && chainId === TARGET_CHAIN_ID,
-            staleTime: 10_000, // 10 seconds cache time
-            gcTime: 30_000, // 30 seconds garbage collection
+            staleTime: 10_000,
+            gcTime: 30_000,
         },
     })
 }
 
 export const useSmartContractWrite = () => {
-    //@note we are not allowed to call hooks in async functions => get the async version from the hook
+    // We are not allowed to call hooks in async functions => get the async version from the hook
     const { writeContractAsync } = useWriteContract()
     const chainId = useChainId()
     const { switchChainAsync } = useSwitchChain()
@@ -76,11 +88,13 @@ export const useSmartContractWrite = () => {
         functionName,
         args = [],
         value,
+        overrideAddress,
     }: {
         contract: ContractType
         functionName: string
         args?: readonly unknown[]
         value?: bigint
+        overrideAddress?: `0x${string}`
     }): Promise<{ result: any; status: string }> => {
         if (chainId !== TARGET_CHAIN_ID) {
             try {
@@ -95,7 +109,7 @@ export const useSmartContractWrite = () => {
 
         try {
             const result = await writeContractAsync({
-                address: getContractAddress(contract),
+                address: overrideAddress ?? getContractAddress(contract),
                 abi: getContractABI(contract),
                 functionName,
                 args,
@@ -104,7 +118,7 @@ export const useSmartContractWrite = () => {
 
             return { result, status: "" }
         } catch (err: any) {
-            if (err.message && err.message.includes("User denied transaction signature")) {
+            if (err.message?.includes("User denied transaction signature")) {
                 return {
                     result: null,
                     status: "User denied the transaction.",
