@@ -15,19 +15,21 @@ export default function Header() {
     const { disconnect } = useDisconnect()
 
     return (
-        <header className="header-dark">
+        <header>
             <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                 <Link href="/" className="flex items-center">
-                    <div className="logo-text">
-                        <span className="text-cyan-500 dark:text-cyan-500 font-extrabold pr-0 ">
-                            Protocol
+                    <div className="hover-logo">
+                        <span className="logo-text">
+                            <span className="text-cyan-500 font-extrabold pr-0 ">Smart</span>
+                            <span className="text-neutral-700 hover:text-neutral-900 font-extrabold">
+                                Will
+                            </span>
                         </span>
-                        <span className="text-neutral-700 dark:text-indigo-600 font-extrabold">Name</span>
                     </div>
                 </Link>
 
                 <nav className="hidden md:flex space-x-6 mx-4">
-                    <Link href="/" className="text-white hover:text-cyan-400 transition-colors">
+                    <Link href="/" className="text-slate-600 hover:text-cyan-600 transition-colors">
                         <span className="flex items-center">
                             <Home className="mr-1 h-4 w-4" />
                             Home
@@ -35,7 +37,10 @@ export default function Header() {
                     </Link>
 
                     {ready && user && (
-                        <Link href="/purchases" className="text-white hover:text-cyan-400 transition-colors">
+                        <Link
+                            href="/purchases"
+                            className="text-slate-600 hover:text-cyan-600 transition-colors"
+                        >
                             <span className="flex items-center">
                                 <Package className="mr-1 h-4 w-4" />
                                 PAGE
@@ -45,7 +50,6 @@ export default function Header() {
                 </nav>
 
                 <div className="flex items-center space-x-3">
-                    {/* <ThemeToggle /> */}
                     <Button
                         disabled={!ready}
                         onClick={() => {
