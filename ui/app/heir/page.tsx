@@ -4,6 +4,8 @@ import { useState, useEffect } from "react"
 import { Clock, Gift } from "lucide-react"
 import { toast } from "sonner"
 
+import HeirPlanCard from "@/components/inheritance/heir-plan-card"
+
 interface InheritancePlan {
     id: string
     dueDate: string
@@ -152,7 +154,12 @@ export default function HeirPage() {
             {/* Inheritance Plans */}
             <div className="grid gap-6 max-w-4xl mx-auto">
                 {inheritancePlans.map((plan, index) => (
-                    <div>"Plan Card Comp"</div>
+                    <HeirPlanCard
+                        key={plan.id}
+                        plan={plan}
+                        planNumber={inheritancePlans.length > 1 ? index + 1 : undefined}
+                        onExecute={() => handleExecutePlan(plan.id)}
+                    />
                 ))}
             </div>
         </div>
