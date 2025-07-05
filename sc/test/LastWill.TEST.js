@@ -220,7 +220,7 @@ describe("LastWill Contract", function () {
         })
     })
 
-    describe.only("Getter Functions", function () {
+    describe("Getter Functions", function () {
         it("Should return correct heir information", async function () {
             const { lastWill, user1, user2, mockToken1 } = await loadFixture(deployContractFixture)
             const tokens = [mockToken1.target]
