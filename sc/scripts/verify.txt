@@ -1,0 +1,3 @@
+npx hardhat verify --network sepolia 0xbCb0870e243A57703fc7dbd62cC2a7cC78415C2A
+npx hardhat verify --network sepolia 0x55A35F1A79C689377c71440FA0fB98677900ef82
+npx hardhat verify --network sepolia 0x3D482caa1A5Bdb3aB98682336402E3776d49924B "0xbCb0870e243A57703fc7dbd62cC2a7cC78415C2A"

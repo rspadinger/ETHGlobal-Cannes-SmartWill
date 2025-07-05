@@ -5,7 +5,9 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "./WillRegistry.sol";
 import "./LastWill.sol";
+import "./WillEscrow.sol";
 
 import "hardhat/console.sol";
 
@@ -17,6 +19,8 @@ contract WillFactory is Ownable {
 
     address public immutable lastWillImplementation;
     address public immutable registry;
+
+    address payable public escrow;
 
     mapping(address => address) public creatorToWill;
     mapping(address => address[]) public heirToWills;
@@ -47,12 +51,23 @@ contract WillFactory is Ownable {
         if (dueDate <= block.timestamp) revert InvalidDueDate();
 
         lastWill = Clones.clone(lastWillImplementation);
+
+        // Register as authorized caller
+        WillEscrow(escrow).authorize(lastWill);
+        WillEscrow(escrow).registerWill(lastWill);
+        creatorToWill[msg.sender] = lastWill;
+        WillRegistry(registry).registerWill(lastWill);
+
         LastWill(lastWill).initialize(msg.sender, dueDate);
 
         emit WillInitialized(lastWill, msg.sender, dueDate);
     }
 
     // Admin Functions
+
+    function setEscrow(address _escrow) external onlyOwner {
+        escrow = payable(_escrow);
+    }
 
     function addTokenToWhiteList(address token) external onlyOwner {
         if (tokenWhiteList[token].allowed) revert TokenAlreadyWhitelisted();
