@@ -30,7 +30,7 @@ contract LastWill {
     event LastWillDeployed(address lastWill);
     event DueDateUpdated(uint256 newDate);
     event HeirAdded(address indexed heir, address[] tokens, uint256[] amounts);
-    event HeirRemoved(uint256 indexed index);
+    event HeirRemoved(address indexed heir);
     event TokensTransferredToEscrow(address indexed token, uint256 amount, address indexed from);
     event NativeTokensTransferredToEscrow(uint256 amount, address indexed from);
     event ExcessNativeTokenReturned(address indexed recipient, uint256 amount);
@@ -53,6 +53,7 @@ contract LastWill {
     error HeirNotFound();
     error NotOwnerOrHeir();
     error NotAuthorized();
+    error NativeTokenAmountMismatch();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -101,11 +102,11 @@ contract LastWill {
         address wallet,
         address[] calldata tokens,
         uint256[] calldata amounts
-    ) external payable onlyOwnerOrFactory {
+    ) public payable onlyOwnerOrFactory {
         if (block.timestamp > dueDate) revert DueDatePassed();
 
         // Check if wallet is already a heir
-        if (isValidHeir(wallet)) revert HeirAlreadyExists();
+        if (isExistingHeir(wallet)) revert HeirAlreadyExists();
 
         // Check if arrays have same size
         if (tokens.length != amounts.length) revert ArraysNotSameSize();
@@ -123,6 +124,25 @@ contract LastWill {
             require(success, "ETH escrow failed");
             escrow.registerDeposit(address(this), address(0), msg.value);
             emit NativeTokensTransferredToEscrow(msg.value, msg.sender);
+        }
+
+        //Check if sum of nativeTokenAmountsPerHeir is not greater than msg.value
+        uint256 nativeAmount;
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (tokens[i] == address(0)) {
+                nativeAmount += amounts[i];
+                break;
+            }
+        }
+
+        if (nativeAmount > msg.value) revert NativeTokenAmountMismatch();
+
+        // Return excess native tokens to the sender if any
+        uint256 excessAmount = msg.value - nativeAmount;
+        if (excessAmount > 0) {
+            (bool success, ) = payable(msg.sender).call{value: excessAmount}("");
+            require(success, "ETH return failed");
+            emit ExcessNativeTokenReturned(msg.sender, excessAmount);
         }
 
         // Transfer ERC20 tokens to escrow
@@ -143,17 +163,7 @@ contract LastWill {
     function removeHeir(address wallet) external onlyOwner {
         if (block.timestamp > dueDate) revert DueDatePassed();
 
-        uint256 index = type(uint256).max;
-        for (uint256 i = 0; i < heirs.length; i++) {
-            if (heirs[i].wallet == wallet) {
-                index = i;
-                break;
-            }
-        }
-        if (index == type(uint256).max) revert HeirNotFound();
-
-        // Get the heir's data before removing
-        Heir memory heirToRemove = heirs[index];
+        (Heir memory heirToRemove, uint256 index, ) = getHeirByAddress(wallet);
 
         // Return native tokens to owner
         uint256 nativeAmount = getNativeTokenAmount(wallet);
@@ -173,11 +183,12 @@ contract LastWill {
         // Remove the heir from the array
         heirs[index] = heirs[heirs.length - 1];
         heirs.pop();
-        emit HeirRemoved(index);
+        emit HeirRemoved(wallet);
     }
 
     //@todo add modifyHeir function
 
+    //execute lastWill for specific heir
     function executeLastWill(address heirAddress) external {
         //@todo pay service fee to protocol
 
@@ -208,7 +219,7 @@ contract LastWill {
         return heirs;
     }
 
-    function isValidHeir(address heir) public view returns (bool) {
+    function isExistingHeir(address heir) public view returns (bool) {
         for (uint256 i = 0; i < heirs.length; i++) {
             if (heirs[i].wallet == heir) {
                 return true;
@@ -230,7 +241,6 @@ contract LastWill {
 
     //@todo should maybe be restricted
     function getHeirByAddress(address heir) public view returns (Heir memory, uint256, uint256) {
-        uint256 index = type(uint256).max;
         for (uint256 i = 0; i < heirs.length; i++) {
             if (heirs[i].wallet == heir) {
                 return (heirs[i], i, dueDate);
