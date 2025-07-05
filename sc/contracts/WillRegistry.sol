@@ -45,10 +45,11 @@ contract WillRegistry is AutomationCompatibleInterface, Ownable {
 
         uint256[] memory dueWillIndexes = new uint256[](MAX_WILLS_TO_EXECUTE);
         uint256 count = 0;
+        uint256 iterations = len < MAX_SCAN_SIZE ? len : MAX_SCAN_SIZE;
         uint256 scanned = 0;
         uint256 i = lastCheckedIndex;
 
-        while (scanned < MAX_SCAN_SIZE && count < MAX_WILLS_TO_EXECUTE) {
+        while (scanned < iterations && count < MAX_WILLS_TO_EXECUTE) {
             LastWill will = LastWill(registeredWills[i]);
             if (block.timestamp >= will.dueDate()) {
                 dueWillIndexes[count] = i;
@@ -56,20 +57,13 @@ contract WillRegistry is AutomationCompatibleInterface, Ownable {
                 upkeepNeeded = true;
             }
 
-            //return to 0 when we reach the  end
+            //return to 0 when we reach the end
             i = (i + 1) % len;
             scanned++;
-
-            // Prevent infinite loop if all wills are scanned
-            if (scanned == len) break;
         }
 
         if (upkeepNeeded) {
             performData = abi.encode(dueWillIndexes, count, i); // pass `i` for next index
-        }
-
-        if (upkeepNeeded) {
-            performData = abi.encode(dueWillIndexes, count);
         }
 
         return (upkeepNeeded, performData);
@@ -80,7 +74,9 @@ contract WillRegistry is AutomationCompatibleInterface, Ownable {
             performData,
             (uint256[], uint256, uint256)
         );
-        lastCheckedIndex = nextIndex;
+
+        lastCheckedIndex = nextIndex % registeredWills.length;
+        //lastCheckedIndex = nextIndex;
 
         for (uint256 k = 0; k < count; k++) {
             uint256 index = indexes[k];
