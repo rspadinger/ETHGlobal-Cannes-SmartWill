@@ -54,23 +54,39 @@ export const useSmartContractRead = ({
     args = [],
     enabled = true,
     overrideAddress,
+    caller,
 }: {
     contract: ContractType
     functionName: string
     args?: readonly unknown[]
     enabled?: boolean
     overrideAddress?: `0x${string}`
+    caller?: `0x${string}`
 }) => {
     const chainId = useChainId()
-    const address = overrideAddress ?? getContractAddress(contract)
+    let address: `0x${string}` | undefined = undefined
+
+    if (overrideAddress) {
+        address = overrideAddress
+    } else if (enabled && chainId === TARGET_CHAIN_ID) {
+        address = getContractAddress(contract)
+    }
+
+    let account: `0x${string}` | undefined = undefined
+    if (caller) {
+        account = caller
+    }
+
+    const shouldRun = !!address && enabled && chainId === TARGET_CHAIN_ID
 
     return useReadContract({
         address,
         abi: getContractABI(contract),
         functionName,
         args,
+        account,
         query: {
-            enabled: enabled && chainId === TARGET_CHAIN_ID,
+            enabled: shouldRun,
             staleTime: 10_000,
             gcTime: 30_000,
         },
@@ -78,7 +94,6 @@ export const useSmartContractRead = ({
 }
 
 export const useSmartContractWrite = () => {
-    // We are not allowed to call hooks in async functions => get the async version from the hook
     const { writeContractAsync } = useWriteContract()
     const chainId = useChainId()
     const { switchChainAsync } = useSwitchChain()
@@ -107,9 +122,24 @@ export const useSmartContractWrite = () => {
             }
         }
 
+        let address: `0x${string}` | undefined = undefined
+
+        if (overrideAddress) {
+            address = overrideAddress
+        } else if (chainId === TARGET_CHAIN_ID) {
+            address = getContractAddress(contract)
+        }
+
+        if (!address) {
+            return {
+                result: null,
+                status: "Contract address could not be determined.",
+            }
+        }
+
         try {
             const result = await writeContractAsync({
-                address: overrideAddress ?? getContractAddress(contract),
+                address,
                 abi: getContractABI(contract),
                 functionName,
                 args,

@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
 import { useAccount, useBalance, useReadContracts } from "wagmi"
-import { erc20Abi } from "viem"
+import { erc20Abi, zeroAddress, isAddress } from "viem"
 
 import { Coins, HandCoins } from "lucide-react"
 import { toast } from "sonner"
@@ -39,6 +39,7 @@ export default function Home() {
     const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([])
     const [isLoadingBalances, setIsLoadingBalances] = useState(false)
     const [hasPlan, setHasPlan] = useState(false)
+    const [planAddress, setPlanAddress] = useState<string | undefined>()
     const [planDueDate, setPlanDueDate] = useState("")
     const [heirs, setHeirs] = useState<Heir[]>([])
     const [isCreatingPlan, setIsCreatingPlan] = useState(false)
@@ -87,20 +88,37 @@ export default function Home() {
         contracts: ERC20Contracts,
     })
 
+    // call getCreatedWill
+    const { data: createdWill } = useSmartContractRead({
+        contract: "WillFactory",
+        functionName: "getCreatedWill",
+    })
+
+    const createdWillReady = !!createdWill && createdWill !== zeroAddress && isAddress(createdWill)
+
+    // call dueDate on LastWill
+    const { data: dueDate } = useSmartContractRead({
+        contract: "LastWill",
+        functionName: "dueDate",
+        args: [],
+        enabled: createdWillReady,
+        overrideAddress: createdWillReady ? createdWill : undefined,
+    })
+
     // Load user data when wallet connects
     useEffect(() => {
         if (authenticated && address) {
             loadUserData()
         }
-    }, [authenticated, address, tokenData, nativeBalance])
+    }, [authenticated, address, tokenData, nativeBalance, createdWill, dueDate])
 
     const loadUserData = async () => {
         setIsLoadingBalances(true)
 
         try {
-            // iterate all returned ERC20 token data and set tokenBalances
             if (!address || !ready || !authenticated || !tokenData) return
 
+            // iterate all returned ERC20 token data and set tokenBalances
             const tokens: TokenBalance[] = []
 
             for (let i = 0; i < tokenData.length; i += 4) {
@@ -129,15 +147,12 @@ export default function Home() {
 
             setTokenBalances(tokens)
 
-            //@todo check if address has a plan: WF::getCreatedWill
-            // get dueDate: LW::dueDate
-            // get all heirs: LW::getHeirs
-            const existingPlan = false // Replace with actual contract call
-
-            if (existingPlan) {
+            if (createdWill && createdWill !== zeroAddress && dueDate !== undefined) {
                 setHasPlan(true)
-                setPlanDueDate("2026-05-31")
-                // Load existing heirs data
+                setPlanAddress(createdWill)
+                setPlanDueDate(dueDate)
+
+                //@todo Load existing heirs data
                 setHeirs([
                     {
                         id: "1",
