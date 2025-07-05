@@ -2,10 +2,10 @@
 
 import type React from "react"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
-import { useAccount, useBalance, useReadContracts, useWriteContract, useConfig } from "wagmi"
+import { useAccount, useBalance, useWriteContract, useConfig } from "wagmi"
 import { readContract } from "@wagmi/core"
 import { waitForTransactionReceipt } from "wagmi/actions"
 import { erc20Abi, zeroAddress, isAddress, formatUnits, parseUnits } from "viem"
@@ -18,6 +18,7 @@ import PlanForm from "@/components/inheritance/plan-form"
 import HeirsTable from "@/components/inheritance/heirs-table"
 
 import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHelper"
+import { useERC20TokenData, getNativeTokenAmount } from "@/lib/web3/tokenHelper"
 import { isValidFutureDate, getIsoDateFromTimestamp, getTimestampFromIsoDate } from "@/lib/validators"
 
 interface TokenBalance {
@@ -46,6 +47,7 @@ export default function Home() {
     const wagmiConfig = useConfig()
     const { executeWrite } = useSmartContractWrite()
     const { writeContractAsync } = useWriteContract()
+    const { tokenData, refetchTokenData, tokenAddresses } = useERC20TokenData()
 
     // State management
     const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([])
@@ -58,48 +60,6 @@ export default function Home() {
     const [isSaving, setIsSaving] = useState(false)
     const [txHash, setTxHash] = useState<string | null>(null)
     const [status, setStatus] = useState("")
-
-    // get whitelisted token addresses => get balances & names
-    const { data: whitelistedTokens } = useSmartContractRead({
-        contract: "WillFactory",
-        functionName: "getWhiteListedTokens",
-    })
-
-    // create the ERC20 contracts
-    const ERC20Contracts = useMemo(() => {
-        if (!whitelistedTokens) return
-        const [tokenAddresses] = whitelistedTokens
-
-        return tokenAddresses.flatMap((tokenAddr) => [
-            {
-                address: tokenAddr,
-                abi: erc20Abi,
-                functionName: "symbol",
-            },
-            {
-                address: tokenAddr,
-                abi: erc20Abi,
-                functionName: "name",
-            },
-            {
-                address: tokenAddr,
-                abi: erc20Abi,
-                functionName: "decimals",
-            },
-            {
-                address: tokenAddr,
-                abi: erc20Abi,
-                functionName: "balanceOf",
-                args: [address],
-            },
-        ])
-    }, [address])
-
-    // call useReadContracts with all ERC20 contracts
-    const { data: tokenData, refetch: refetchTokenData } = useReadContracts({
-        allowFailure: false,
-        contracts: ERC20Contracts,
-    })
 
     // call creatorToWill to get the address of the will
     const { data: createdWill } = useSmartContractRead({
@@ -229,18 +189,6 @@ export default function Home() {
         return { heirsToAdd, heirsToDelete, tokenDetails: Array.from(tokenDetailsMap.values()) }
     }
 
-    //helper function to get native token amount
-    function getNativeTokenAmount(heirs: { tokens: string[]; amounts: bigint[] }[]): bigint {
-        for (const heir of heirs) {
-            for (let i = 0; i < heir.tokens.length; i++) {
-                if (heir.tokens[i].toLowerCase() === zeroAddress) {
-                    return heir.amounts[i]
-                }
-            }
-        }
-        return 0n
-    }
-
     // Load user data when wallet connects
     useEffect(() => {
         if (authenticated && address) {
@@ -256,7 +204,7 @@ export default function Home() {
 
             // iterate all returned ERC20 token data and set tokenBalances
             const tokens: TokenBalance[] = []
-            const [tokenAddresses] = whitelistedTokens
+            //const [tokenAddresses] = whitelistedTokens
 
             for (let i = 0; i < tokenData.length; i += 4) {
                 const tokenIndex = i / 4
@@ -365,7 +313,7 @@ export default function Home() {
     }
 
     const handleSaveAndApprove = async () => {
-        if (!address || isSaving) return
+        if (!address || isSaving || !createdWillReady) return
 
         if (!isValidFutureDate(planDueDate)) {
             alert("Please select a date at least 1 day in the future.")
