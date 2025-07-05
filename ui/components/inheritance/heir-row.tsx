@@ -5,7 +5,8 @@ import type React from "react"
 import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { X } from "lucide-react"
+import { X, Info } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface TokenAmount {
     symbol: string
@@ -34,9 +35,28 @@ export default function HeirRow({
     canRemove,
     isReadOnly = false,
 }: HeirRowProps) {
+    const [addressError, setAddressError] = useState("")
+
+    const validateAddress = (addr: string) => {
+        if (!addr) {
+            setAddressError("")
+            return true
+        }
+
+        const ethAddressRegex = /^0x[a-fA-F0-9]{40}$/
+        if (!ethAddressRegex.test(addr)) {
+            setAddressError("Invalid wallet address")
+            return false
+        }
+
+        setAddressError("")
+        return true
+    }
+
     const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newAddress = e.target.value
         onAddressChange(newAddress)
+        validateAddress(newAddress)
     }
 
     const hasData = address || tokenAmounts.some((token) => token.amount > 0)
@@ -52,13 +72,25 @@ export default function HeirRow({
             <div className="md:col-span-4 space-y-1">
                 <div className="flex items-center space-x-1">
                     <span className="text-xs font-medium">Wallet Address</span>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger>
+                                <Info className="h-3 w-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Enter the Ethereum wallet address of the heir</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                 </div>
                 <Input
                     placeholder="Enter wallet address"
                     value={address}
                     onChange={handleAddressChange}
                     disabled={isReadOnly}
+                    className={addressError ? "border-destructive" : ""}
                 />
+                {addressError && <p className="text-destructive text-xs">{addressError}</p>}
             </div>
 
             {/* Token Amounts */}
@@ -67,6 +99,16 @@ export default function HeirRow({
                     <div key={token.symbol} className="space-y-1">
                         <div className="flex items-center space-x-1">
                             <span className="text-xs font-medium">{token.symbol}</span>
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Info className="h-3 w-3 text-muted-foreground" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>Amount of {token.symbol} to leave for this heir</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
                         </div>
                         <Input
                             type="number"
@@ -94,7 +136,7 @@ export default function HeirRow({
                     variant="ghost"
                     size="sm"
                     onClick={onRemove}
-                    disabled={!canRemove || (!hasData && !isReadOnly)}
+                    disabled={!canRemove}
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
                     <X className="h-4 w-4" />
