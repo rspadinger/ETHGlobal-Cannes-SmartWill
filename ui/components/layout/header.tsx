@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Wallet, Package, Home } from "lucide-react"
+import { Wallet, Package, Home, Gift } from "lucide-react"
 import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
 import { useAccount, useDisconnect, useBalance } from "wagmi"
@@ -37,13 +37,10 @@ export default function Header() {
                     </Link>
 
                     {ready && user && (
-                        <Link
-                            href="/purchases"
-                            className="text-slate-600 hover:text-cyan-600 transition-colors"
-                        >
+                        <Link href="/heir" className="text-slate-600 hover:text-cyan-600 transition-colors">
                             <span className="flex items-center">
-                                <Package className="mr-1 h-4 w-4" />
-                                PAGE
+                                <Gift className="mr-1 h-4 w-4" />
+                                My Inheritance
                             </span>
                         </Link>
                     )}
