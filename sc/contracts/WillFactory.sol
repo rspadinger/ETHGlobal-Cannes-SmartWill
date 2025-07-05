@@ -34,11 +34,7 @@ contract WillFactory is Ownable {
     error TokenNotWhitelisted();
     error Unauthorized();
     error InvalidDueDate();
-
-    modifier onlyWhiteListed(address token) {
-        if (!tokenWhiteList[token].allowed) revert TokenNotWhitelisted();
-        _;
-    }
+    error AlreadyHasWill();
 
     constructor(address _registry, address _escrow) Ownable(msg.sender) {
         lastWillImplementation = address(new LastWill(address(this), _escrow, _registry));
@@ -50,10 +46,12 @@ contract WillFactory is Ownable {
         // Check if dueDate is in the future
         if (dueDate <= block.timestamp) revert InvalidDueDate();
 
+        //@audit just for testing => uncomment
+        //if (creatorToWill[msg.sender] != address(0)) revert AlreadyHasWill();
+
         lastWill = Clones.clone(lastWillImplementation);
 
         // Register as authorized caller
-        WillEscrow(escrow).authorize(lastWill);
         WillEscrow(escrow).registerWill(lastWill);
         creatorToWill[msg.sender] = lastWill;
         WillRegistry(registry).registerWill(lastWill);
@@ -65,6 +63,7 @@ contract WillFactory is Ownable {
 
     // Admin Functions
 
+    //@note native tokens are accepted by default => cannot be added to whitelist
     function addTokenToWhiteList(address token) external onlyOwner {
         if (tokenWhiteList[token].allowed) revert TokenAlreadyWhitelisted();
         uint8 decimals = IERC20Metadata(token).decimals();

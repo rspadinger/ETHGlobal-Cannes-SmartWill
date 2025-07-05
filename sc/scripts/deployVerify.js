@@ -54,3 +54,4 @@ main().catch((error) => {
 })
 
 //npx hardhat run scripts/deployVerify.js --network sepolia
+//bash D:/_ETHGlobal/SmartWill/sc/scripts/verify.txt

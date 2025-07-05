@@ -27,15 +27,15 @@ contract WillEscrow is Ownable {
     // Track which wills are registered
     mapping(address => bool) public registeredWills;
 
-    error UnauthorizedCaller();
     error InsufficientBalance();
     error WillNotRegistered();
     error InvalidTransfer();
     error NotDueYet();
     error AlreadyExecuted();
+    error NotFactory();
 
-    modifier onlyAuthorized() {
-        if (!authorizedCallers[msg.sender]) revert UnauthorizedCaller();
+    modifier onlyFactory() {
+        if (msg.sender != factory) revert NotFactory();
         _;
     }
 
@@ -51,11 +51,6 @@ contract WillEscrow is Ownable {
         authorizedCallers[factory] = true;
     }
 
-    function authorize(address caller) external {
-        if (msg.sender != factory) revert UnauthorizedCaller();
-        authorizedCallers[caller] = true;
-    }
-
     //@todo when transferring tokens to heirs, deduct a small protocol fee
 
     function transferERC20(
@@ -69,7 +64,7 @@ contract WillEscrow is Ownable {
         // Verify the transfer is valid
         if (balance.amount < amount) revert InsufficientBalance();
 
-        // Check if transfer is authorized
+        //@todo careful, balance.owner == corresp will (not the creator of the will)
         bool isOwner = msg.sender == balance.owner;
         bool isHeir = isHeirTransfer(will, to, amount, token);
 
@@ -87,11 +82,7 @@ contract WillEscrow is Ownable {
         require(success, "Transfer failed");
     }
 
-    function transferETH(
-        address will,
-        address payable to,
-        uint256 amount
-    ) external onlyAuthorized onlyRegisteredWill {
+    function transferETH(address will, address payable to, uint256 amount) external onlyRegisteredWill {
         // Verify the transfer is valid
         if (nativeBalances[will] < amount) revert InsufficientBalance();
 
@@ -144,7 +135,7 @@ contract WillEscrow is Ownable {
         return false;
     }
 
-    function registerDeposit(address will, address token, uint256 amount) external onlyAuthorized {
+    function registerDeposit(address will, address token, uint256 amount) external onlyRegisteredWill {
         //for native token
         if (token == address(0)) {
             nativeBalances[will] += amount;
@@ -154,7 +145,7 @@ contract WillEscrow is Ownable {
         }
     }
 
-    function registerWill(address will) external onlyAuthorized {
+    function registerWill(address will) external onlyFactory {
         registeredWills[will] = true;
     }
 

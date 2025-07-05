@@ -114,7 +114,7 @@ contract LastWill {
         // Check if all tokens are whitelisted and amounts are valid
         for (uint256 i = 0; i < tokens.length; i++) {
             (bool allowed, ) = WillFactory(factory).tokenWhiteList(tokens[i]);
-            if (!allowed) revert TokenNotWhitelisted();
+            if (!allowed && tokens[i] != address(0)) revert TokenNotWhitelisted();
             if (amounts[i] == 0) revert AmountMustBeGreaterThanZero();
         }
 
@@ -253,7 +253,7 @@ contract LastWill {
         return 0;
     }
 
-    //@todo should maybe be  restricted
+    //@todo should maybe be restricted
     function getHeirByAddress(address heir) public view returns (Heir memory, uint256, uint256, bool) {
         for (uint256 i = 0; i < heirs.length; i++) {
             if (heirs[i].wallet == heir) {
