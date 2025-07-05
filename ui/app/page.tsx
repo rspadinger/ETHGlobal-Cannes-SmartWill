@@ -2,16 +2,20 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 // @ts-expect-error working fine
-import { useAccount } from "wagmi"
-import { DollarSign, LinkIcon, Coins } from "lucide-react"
+import { useAccount, useBalance, useReadContracts } from "wagmi"
+import { erc20Abi } from "viem"
+
+import { Coins, HandCoins } from "lucide-react"
 import { toast } from "sonner"
 
 import TokenOverview from "@/components/inheritance/token-overview"
 import PlanForm from "@/components/inheritance/plan-form"
 import HeirsTable from "@/components/inheritance/heirs-table"
+
+import { useSmartContractRead, useSmartContractWrite } from "@/lib/web3/wagmiHelper"
 
 interface TokenBalance {
     symbol: string
@@ -29,6 +33,7 @@ interface Heir {
 export default function Home() {
     const { user, ready, authenticated } = usePrivy()
     const { address } = useAccount()
+    const { data: nativeBalance, isLoading: loadingNativeBalance } = useBalance({ address })
 
     // State management
     const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([])
@@ -40,47 +45,95 @@ export default function Home() {
     const [isSaving, setIsSaving] = useState(false)
     const [isPlanReadOnly, setIsPlanReadOnly] = useState(false)
 
-    // Mock token data - replace with actual blockchain calls
-    const mockTokenBalances: TokenBalance[] = [
-        {
-            symbol: "USDC",
-            name: "USD Coin",
-            balance: 1234.56,
-            icon: <DollarSign className="h-6 w-6" />,
-        },
-        {
-            symbol: "POLS",
-            name: "Polkastarter",
-            balance: 500.0,
-            icon: <Coins className="h-6 w-6" />,
-        },
-        {
-            symbol: "LINK",
-            name: "Chainlink",
-            balance: 25.75,
-            icon: <LinkIcon className="h-6 w-6" />,
-        },
-    ]
+    // get whitelisted token addresses => get balances & names
+    const { data: whitelistedTokens } = useSmartContractRead({
+        contract: "WillFactory",
+        functionName: "getWhiteListedTokens",
+    })
+
+    // create the ERC20 contracts
+    const ERC20Contracts = useMemo(() => {
+        if (!whitelistedTokens) return
+        const [tokenAddresses] = whitelistedTokens
+
+        return tokenAddresses.flatMap((tokenAddr) => [
+            {
+                address: tokenAddr,
+                abi: erc20Abi,
+                functionName: "symbol",
+            },
+            {
+                address: tokenAddr,
+                abi: erc20Abi,
+                functionName: "name",
+            },
+            {
+                address: tokenAddr,
+                abi: erc20Abi,
+                functionName: "decimals",
+            },
+            {
+                address: tokenAddr,
+                abi: erc20Abi,
+                functionName: "balanceOf",
+                args: [address],
+            },
+        ])
+    }, [address])
+
+    // call useReadContracts with all ERC20 contracts
+    const { data: tokenData } = useReadContracts({
+        allowFailure: false,
+        contracts: ERC20Contracts,
+    })
 
     // Load user data when wallet connects
     useEffect(() => {
         if (authenticated && address) {
             loadUserData()
         }
-    }, [authenticated, address])
+    }, [authenticated, address, tokenData, nativeBalance])
 
     const loadUserData = async () => {
         setIsLoadingBalances(true)
 
         try {
-            // Simulate API call delay
-            await new Promise((resolve) => setTimeout(resolve, 1500))
+            // iterate all returned ERC20 token data and set tokenBalances
+            if (!address || !ready || !authenticated || !tokenData) return
 
-            // Mock: Load token balances from blockchain
-            setTokenBalances(mockTokenBalances)
+            const tokens: TokenBalance[] = []
 
-            // Mock: Check if user has existing plan
+            for (let i = 0; i < tokenData.length; i += 4) {
+                const symbol = tokenData[i] as string
+                const name = tokenData[i + 1] as string
+                const decimals = tokenData[i + 2] as number
+                const rawBalance = tokenData[i + 3] as bigint
+
+                tokens.push({
+                    symbol,
+                    name,
+                    balance: Number(rawBalance) / 10 ** decimals,
+                    icon: <Coins className="h-6 w-6" />,
+                })
+            }
+
+            // add native token at the start
+            if (nativeBalance) {
+                tokens.unshift({
+                    symbol: nativeBalance.symbol || "POL",
+                    name: nativeBalance.symbol === "ETH" ? "Ether" : nativeBalance.symbol || "Polygon",
+                    balance: Number(nativeBalance.value) / 10 ** nativeBalance.decimals,
+                    icon: <HandCoins className="h-6 w-6" />,
+                })
+            }
+
+            setTokenBalances(tokens)
+
+            //@todo check if address has a plan: WF::getCreatedWill
+            // get dueDate: LW::dueDate
+            // get all heirs: LW::getHeirs
             const existingPlan = false // Replace with actual contract call
+
             if (existingPlan) {
                 setHasPlan(true)
                 setPlanDueDate("2026-05-31")
@@ -96,7 +149,7 @@ export default function Home() {
             }
         } catch (error) {
             console.error("Error loading user data:", error)
-            toast.error("Failed to load wallet data")
+            toast.error("Failed to load user data")
         } finally {
             setIsLoadingBalances(false)
         }
@@ -109,6 +162,7 @@ export default function Home() {
             // Simulate contract interaction
             await new Promise((resolve) => setTimeout(resolve, 2000))
 
+            //@todo WF::createLastWill
             setPlanDueDate(dueDate)
             setHasPlan(true)
 
@@ -142,6 +196,7 @@ export default function Home() {
     }
 
     const handleDueDateChange = (date: string) => {
+        //@todo LW::updateDueDate
         setPlanDueDate(date)
     }
 
@@ -152,6 +207,7 @@ export default function Home() {
             // Simulate approval process
             await new Promise((resolve) => setTimeout(resolve, 3000))
 
+            //@todo iterate all heirs => LW::addHeir && LW::updateDueDate (if different)
             // Mock: Call smart contract createLastWill
             console.log("Creating/updating will with:", {
                 dueDate: planDueDate,
